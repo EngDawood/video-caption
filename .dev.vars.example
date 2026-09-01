@@ -1,0 +1,11 @@
+# Copy to .dev.vars for `wrangler dev`. In production set these with:
+#   npx wrangler secret put <NAME>
+
+# From @BotFather
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
+
+# Any random string; must match what scripts/set-webhook.mjs sends
+TELEGRAM_WEBHOOK_SECRET=change-me
+
+# Only needed if you flip STT_PROVIDER to "openai" in wrangler.jsonc
+# OPENAI_API_KEY=sk-...

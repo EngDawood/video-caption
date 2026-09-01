@@ -1,0 +1,67 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "video-caption",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-08-01",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"observability": {
+		"enabled": true
+	},
+	"ai": {
+		"binding": "AI"
+	},
+	"r2_buckets": [
+		{
+			"binding": "MEDIA",
+			"bucket_name": "video-caption-media"
+		},
+		{
+			"bucket_name": "video-caption-media",
+			"binding": "video_caption_media",
+			"remote": true
+		}
+	],
+	// Dockerfile lives at the project root so the build context can see ./fonts.
+	"containers": [
+		{
+			"class_name": "FfmpegContainer",
+			"image": "./Dockerfile",
+			"instance_type": "standard-2",
+			"max_instances": 5
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "FFMPEG",
+				"class_name": "FfmpegContainer"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"FfmpegContainer"
+			]
+		}
+	],
+	"workflows": [
+		{
+			"name": "caption-workflow",
+			"binding": "CAPTION_WORKFLOW",
+			"class_name": "CaptionWorkflow"
+		}
+	],
+	"vars": {
+		// Must match a family name libass can resolve — check GET /debug/fonts?secret=…
+		"SUBTITLE_FONT": "Al Jazeera Arabic",
+		"SOURCE_LANG": "en",
+		"TARGET_LANG": "ar",
+		"STT_PROVIDER": "workers-ai",
+		"CHUNK_SECONDS": "240",
+		"MAX_VIDEO_SECONDS": "900"
+	}
+}
