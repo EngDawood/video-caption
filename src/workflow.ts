@@ -91,6 +91,10 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
           width: meta.width ?? 1280,
           height: meta.height ?? 720,
           rtl: (env.TARGET_LANG || 'ar') === 'ar',
+          preset: env.CAPTION_PRESET,
+          size: env.CAPTION_SIZE,
+          position: env.CAPTION_POSITION,
+          allowBold: env.SUBTITLE_FONT_BOLD === 'true',
         });
 
         await this.withVideoLoaded(jobId, inputKey, async () => {

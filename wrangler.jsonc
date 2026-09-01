@@ -23,7 +23,7 @@
 			"remote": true
 		}
 	],
-	// Dockerfile lives at the project root so the build context can see ./fonts.
+	// Dockerfile lives at the project root so the build context can see ./public.
 	"containers": [
 		{
 			"class_name": "FfmpegContainer",
@@ -56,8 +56,18 @@
 		}
 	],
 	"vars": {
-		// Must match a family name libass can resolve — check GET /debug/fonts?secret=…
-		"SUBTITLE_FONT": "Al Jazeera Arabic",
+		// The font's INTERNAL family name, not its filename — libass silently
+		// falls back to a Latin font (= tofu for Arabic) on a mismatch.
+		// Bundled: "Al Jazeera" (Light/Regular/Bold) and "thmanyah serif display"
+		// (Regular only). Verify with GET /debug/fonts?secret=…
+		"SUBTITLE_FONT": "Al Jazeera",
+		// Al Jazeera ships a real Bold; thmanyah does not — set false for it,
+		// synthetic bold smears Arabic letterforms.
+		"SUBTITLE_FONT_BOLD": "true",
+		// clean | hormozi | cinematic | youtube | naskh
+		"CAPTION_PRESET": "clean",
+		"CAPTION_SIZE": "medium",
+		"CAPTION_POSITION": "bottom",
 		"SOURCE_LANG": "en",
 		"TARGET_LANG": "ar",
 		"STT_PROVIDER": "workers-ai",
