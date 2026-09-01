@@ -41,8 +41,8 @@ export async function transcribeChunk(
   fallbackDuration: number,
 ): Promise<Segment[]> {
   const raw =
-    env.STT_PROVIDER === 'openai'
-      ? await transcribeOpenAI(env, audio)
+    env.STT_PROVIDER === 'groq' || env.STT_PROVIDER === 'mistral'
+      ? await transcribeExternal(env, audio, env.STT_PROVIDER)
       : await transcribeWorkersAI(env, audio);
 
   return normalize(raw, fallbackDuration).map((s) => ({
@@ -58,21 +58,46 @@ async function transcribeWorkersAI(env: Env, audio: ArrayBuffer): Promise<any> {
   return env.AI.run(WHISPER as any, input as any);
 }
 
-async function transcribeOpenAI(env: Env, audio: ArrayBuffer): Promise<any> {
-  if (!env.OPENAI_API_KEY) throw new Error('STT_PROVIDER=openai but OPENAI_API_KEY is not set');
+/**
+ * OpenAI-compatible transcription providers.
+ *
+ * `granularityField` is not cosmetic: Groq takes the PHP-style array form and
+ * Mistral (Voxtral) takes the plain name — and Voxtral returns an EMPTY
+ * segments array if segment granularity is not requested at all.
+ */
+const PROVIDERS = {
+  groq: {
+    endpoint: 'https://api.groq.com/openai/v1/audio/transcriptions',
+    model: 'whisper-large-v3-turbo',
+    keyVar: 'GROQ_API_KEY',
+    granularityField: 'timestamp_granularities[]',
+  },
+  mistral: {
+    endpoint: 'https://api.mistral.ai/v1/audio/transcriptions',
+    model: 'voxtral-mini-latest',
+    keyVar: 'MISTRAL_API_KEY',
+    granularityField: 'timestamp_granularities',
+  },
+} as const;
+
+async function transcribeExternal(env: Env, audio: ArrayBuffer, id: 'groq' | 'mistral'): Promise<any> {
+  const provider = PROVIDERS[id];
+  const apiKey = env[provider.keyVar];
+  if (!apiKey) throw new Error(`STT_PROVIDER=${id} but ${provider.keyVar} is not set`);
 
   const form = new FormData();
   form.append('file', new File([audio], 'audio.mp3', { type: 'audio/mpeg' }));
-  form.append('model', 'whisper-1');
+  form.append('model', provider.model);
   form.append('response_format', 'verbose_json');
+  form.append(provider.granularityField, 'segment');
   if (env.SOURCE_LANG && env.SOURCE_LANG !== 'auto') form.append('language', env.SOURCE_LANG);
 
-  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+  const res = await fetch(provider.endpoint, {
     method: 'POST',
-    headers: { authorization: `Bearer ${env.OPENAI_API_KEY}` },
+    headers: { authorization: `Bearer ${apiKey}` },
     body: form,
   });
-  if (!res.ok) throw new Error(`OpenAI transcription failed (${res.status}): ${await res.text()}`);
+  if (!res.ok) throw new Error(`${id} transcription failed (${res.status}): ${await res.text()}`);
   return res.json();
 }
 

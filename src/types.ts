@@ -17,14 +17,16 @@ export interface Env {
   CAPTION_POSITION: CaptionPosition;
   SOURCE_LANG: string;
   TARGET_LANG: string;
-  STT_PROVIDER: 'workers-ai' | 'openai';
+  STT_PROVIDER: 'workers-ai' | 'groq' | 'mistral';
   CHUNK_SECONDS: string;
   MAX_VIDEO_SECONDS: string;
 
   // secrets (wrangler secret put)
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
-  OPENAI_API_KEY?: string;
+  /** Only the one matching STT_PROVIDER is needed. */
+  GROQ_API_KEY?: string;
+  MISTRAL_API_KEY?: string;
 }
 
 /** A single subtitle line: seconds from the start of the video. */
