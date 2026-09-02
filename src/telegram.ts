@@ -26,6 +26,8 @@ export interface TgMessage {
   text?: string;
   /** Text attached to a media message — a link can arrive here instead. */
   caption?: string;
+  /** Present on a photo message: how a confirm card is told apart from a text one. */
+  photo?: Array<{ file_id: string }>;
 }
 
 export interface TgCallbackQuery {
@@ -62,6 +64,36 @@ export function telegram(token: string) {
         chat_id: chatId,
         message_id: messageId,
         text,
+        ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+      }).catch(() => null);
+    },
+
+    /**
+     * Send a photo by URL — Telegram fetches it itself, which matters because
+     * the thumbnail links handed out by the download API expire quickly.
+     * Returns null instead of throwing: a dead thumbnail must not cost the
+     * user the card, the caller falls back to text.
+     */
+    async sendPhoto(
+      chatId: number,
+      photo: string,
+      opts: { caption?: string; replyTo?: number; keyboard?: InlineKeyboard } = {},
+    ): Promise<TgMessage | null> {
+      return call<TgMessage>(token, 'sendPhoto', {
+        chat_id: chatId,
+        photo,
+        ...(opts.caption ? { caption: opts.caption } : {}),
+        ...(opts.replyTo ? { reply_to_message_id: opts.replyTo, allow_sending_without_reply: true } : {}),
+        ...(opts.keyboard ? { reply_markup: { inline_keyboard: opts.keyboard } } : {}),
+      }).catch(() => null);
+    },
+
+    /** editMessageText is refused on a photo message; captions need their own call. */
+    editMessageCaption(chatId: number, messageId: number, caption: string, keyboard?: InlineKeyboard) {
+      return call<TgMessage>(token, 'editMessageCaption', {
+        chat_id: chatId,
+        message_id: messageId,
+        caption,
         ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
       }).catch(() => null);
     },

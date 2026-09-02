@@ -13,6 +13,13 @@ const SOCIAL_HOSTS =
 
 const CANDIDATE = /(?:https?:\/\/)?[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(?:\/[^\s]*)?/gi;
 
+/**
+ * Ceiling on a video pulled from a social link. Telegram caps what a bot may
+ * upload at 50 MB, and burning captions re-encodes rather than shrinks, so a
+ * source near that cap can produce an undeliverable result.
+ */
+export const maxSourceBytes = (env: Env): number => Number(env.MAX_SOURCE_MB || 45) * 1024 * 1024;
+
 export interface ResolvedMedia {
   url: string;
   platform: string;

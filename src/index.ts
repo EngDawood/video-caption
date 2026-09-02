@@ -1,4 +1,6 @@
-import { extractSourceUrl } from './download';
+import { NonRetryableError } from 'cloudflare:workflows';
+import { extractSourceUrl, maxSourceBytes } from './download';
+import { handleOfferCallback, isOfferCallback, sendOffer, startJob } from './jobs';
 import { MENU_TITLE, handleMenuCallback, rootKeyboard, summary } from './menu';
 import { loadSettings } from './settings';
 import { extractVideo, telegram, type TgUpdate } from './telegram';
@@ -11,16 +13,19 @@ export { CaptionWorkflow } from './workflow';
 // The Bot API refuses to hand a bot any file larger than this.
 const TELEGRAM_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
 
-const HELP = [
-  'Send me a video — or a link to one on TikTok, Instagram, YouTube, X, Facebook or Threads — and I will:',
-  '1. pull the speech out of it,',
-  '2. translate it to Arabic,',
-  '3. burn the Arabic captions into the video and send it back.',
-  '',
-  `Videos you upload must be under ${TELEGRAM_DOWNLOAD_LIMIT / 1024 / 1024} MB — that is a Telegram limit on what bots may download. Links have no such limit.`,
-  '',
-  'Send /settings to change the caption style, font, size, colour or position.',
-].join('\n');
+const help = (env: Env) =>
+  [
+    'Send me a video — or a link to one on TikTok, Instagram, YouTube, X, Facebook or Threads — and I will:',
+    '1. pull the speech out of it,',
+    '2. translate it to Arabic,',
+    '3. burn the Arabic captions into the video and send it back.',
+    '',
+    'A link is previewed first — nothing is transcribed until you tap ✅ Caption it.',
+    '',
+    `Uploads must be under ${TELEGRAM_DOWNLOAD_LIMIT / 1024 / 1024} MB, which is a Telegram limit on what bots may download. Videos from a link must be under ${Math.round(maxSourceBytes(env) / 1024 / 1024)} MB, so the captioned result still fits back into Telegram.`,
+    '',
+    'Send /settings to change the caption style, font, size, colour or position.',
+  ].join('\n');
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -79,6 +84,19 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
     const origin = query.message;
     if (!origin || !query.data) return;
     if (!isOwner(env, origin.chat.id)) return;
+
+    if (isOfferCallback(query.data)) {
+      await handleOfferCallback(
+        env,
+        origin.chat.id,
+        origin.message_id,
+        query.id,
+        query.data,
+        Boolean(origin.photo),
+      );
+      return;
+    }
+
     await handleMenuCallback(env, origin.chat.id, origin.message_id, query.id, query.data);
     return;
   }
@@ -112,8 +130,8 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
         const settings = await loadSettings(env, chatId);
         await tg.sendMessage(chatId, summary(settings), message.message_id);
       } else if (sourceUrl) {
-        // A social link: the download service fetches it, then the same
-        // caption pipeline runs on whatever comes back.
+        // A social link: resolve it for a preview, then let the user confirm
+        // before any container time or transcription is paid for.
         if (!env.DOWNLOAD_API_KEY) {
           await tg.sendMessage(
             chatId,
@@ -122,9 +140,13 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
           );
           return;
         }
-        await start(env, tg, chatId, message.message_id, { sourceUrl });
+        try {
+          await sendOffer(env, chatId, message.message_id, sourceUrl);
+        } catch (err) {
+          await tg.sendMessage(chatId, `⚠️ ${offerProblem(err)}`, message.message_id);
+        }
       } else if (message.text) {
-        await tg.sendMessage(chatId, HELP, message.message_id);
+        await tg.sendMessage(chatId, help(env), message.message_id);
       }
       return;
     }
@@ -138,26 +160,21 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
       return;
     }
 
-    await start(env, tg, chatId, message.message_id, { fileId: video.fileId });
+    await startJob(env, chatId, message.message_id, { fileId: video.fileId });
   } catch (err) {
     console.error('[webhook] failed to start job:', err);
     await tg.sendMessage(chatId, '❌ Could not start the job. Try again.').catch(() => {});
   }
 }
 
-/** Post the status message and kick off a caption job for it. */
-async function start(
-  env: Env,
-  tg: ReturnType<typeof telegram>,
-  chatId: number,
-  messageId: number,
-  source: { fileId: string; sourceUrl?: never } | { sourceUrl: string; fileId?: never },
-): Promise<void> {
-  const status = await tg.sendMessage(chatId, '⏳ Queued…', messageId);
-  const jobId = crypto.randomUUID();
-
-  await env.CAPTION_WORKFLOW.create({
-    id: jobId,
-    params: { jobId, chatId, messageId, ...source, statusMessageId: status.message_id },
-  });
+/**
+ * Why a link could not be offered.
+ *
+ * A NonRetryableError carries a message written for the user; anything else is
+ * a busy or flaky backend, which is worth trying again by hand.
+ */
+function offerProblem(err: unknown): string {
+  if (err instanceof NonRetryableError) return err.message;
+  console.error('[webhook] could not resolve link:', err);
+  return 'The download service is busy right now — send that link again in a moment.';
 }

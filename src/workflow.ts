@@ -7,7 +7,7 @@ import {
   type WorkflowTimeoutDuration,
 } from 'cloudflare:workers';
 import { transcribeChunk, translateSegments } from './ai';
-import { fetchMedia, resolveVideo } from './download';
+import { fetchMedia, maxSourceBytes, resolveVideo } from './download';
 import { ffmpegFor } from './ffmpeg';
 import { FONTS, loadSettings } from './settings';
 import { buildAss } from './subtitles';
@@ -19,13 +19,6 @@ const RETRY: WorkflowStepConfig = {
 };
 
 const longStep = (timeout: WorkflowTimeoutDuration): WorkflowStepConfig => ({ ...RETRY, timeout });
-
-/**
- * Ceiling on a video pulled from a social link. Telegram caps what a bot may
- * upload at 50 MB, and burning captions re-encodes rather than shrinks, so a
- * source near the cap can produce an undeliverable result.
- */
-const maxSourceBytes = (env: Env): number => Number(env.MAX_SOURCE_MB || 45) * 1024 * 1024;
 
 export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
   async run(event: WorkflowEvent<CaptionJob>, step: WorkflowStep) {
