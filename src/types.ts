@@ -19,6 +19,7 @@ export interface Env {
   CAPTION_POSITION: CaptionPosition;
   SOURCE_LANG: string;
   TARGET_LANG: string;
+  /** The provider tried FIRST; the others follow as fallbacks. */
   STT_PROVIDER: 'workers-ai' | 'groq' | 'mistral';
   CHUNK_SECONDS: string;
   MAX_VIDEO_SECONDS: string;
@@ -32,7 +33,7 @@ export interface Env {
   // secrets (wrangler secret put)
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
-  /** Only the one matching STT_PROVIDER is needed. */
+  /** Both are used: one is the preferred STT provider, the other its fallback. */
   GROQ_API_KEY?: string;
   MISTRAL_API_KEY?: string;
   /**

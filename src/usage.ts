@@ -17,6 +17,14 @@ const UNITS = { memory: 'GiB-hr', cpu: 'vCPU-min', disk: 'GB-hr' };
 
 type Metric = keyof typeof INCLUDED;
 
+/**
+ * No `dimensions` and therefore no `orderBy`: the report only ever wants the
+ * month's totals, so one pre-aggregated group is all that is asked for.
+ *
+ * Do not add `orderBy: [date_ASC]` back without also selecting
+ * `dimensions { date }` — the API rejects ordering by a field that is neither
+ * aggregated nor a selected dimension, and the whole query fails.
+ */
 const QUERY = `
   query ContainersUsage($accountTag: String, $start: Date, $end: Date) {
     viewer {
@@ -24,7 +32,6 @@ const QUERY = `
         containersUsageAdaptiveGroups(
           limit: 1000
           filter: { date_geq: $start, date_leq: $end }
-          orderBy: [date_ASC]
         ) {
           sum { cpuTimeSec allocatedMemory allocatedDisk }
         }

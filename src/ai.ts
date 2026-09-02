@@ -40,10 +40,7 @@ export async function transcribeChunk(
   offset: number,
   fallbackDuration: number,
 ): Promise<Segment[]> {
-  const raw =
-    env.STT_PROVIDER === 'groq' || env.STT_PROVIDER === 'mistral'
-      ? await transcribeExternal(env, audio, env.STT_PROVIDER)
-      : await transcribeWorkersAI(env, audio);
+  const raw = await transcribe(env, audio);
 
   // Whisper hands back whole paragraphs — up to ~30s in one segment. Break
   // them into caption-sized cues here so the translator also receives
@@ -162,7 +159,7 @@ const PROVIDERS = {
 async function transcribeExternal(env: Env, audio: ArrayBuffer, id: 'groq' | 'mistral'): Promise<any> {
   const provider = PROVIDERS[id];
   const apiKey = env[provider.keyVar];
-  if (!apiKey) throw new Error(`STT_PROVIDER=${id} but ${provider.keyVar} is not set`);
+  if (!apiKey) throw new Error(`${id} is in the STT chain but ${provider.keyVar} is not set`);
 
   const form = new FormData();
   form.append('file', new File([audio], 'audio.mp3', { type: 'audio/mpeg' }));
@@ -178,6 +175,52 @@ async function transcribeExternal(env: Env, audio: ArrayBuffer, id: 'groq' | 'mi
   });
   if (!res.ok) throw new Error(`${id} transcription failed (${res.status}): ${await res.text()}`);
   return res.json();
+}
+
+/**
+ * Transcription providers in the order they are tried.
+ *
+ * STT_PROVIDER names the PREFERRED provider, not the only one: the rest of the
+ * chain is the fallback, so a Groq outage or a spent quota rolls over to
+ * Mistral and finally to Workers AI instead of failing the job. Workers AI is
+ * always last because it is the slowest of the three and the only one billed
+ * to the Cloudflare account.
+ *
+ * An external provider with no API key is skipped rather than counted as a
+ * failure — nothing is attempted that cannot possibly work.
+ */
+type SttProvider = 'groq' | 'mistral' | 'workers-ai';
+
+const STT_ORDER: readonly SttProvider[] = ['groq', 'mistral', 'workers-ai'];
+
+export function sttChain(env: Env): SttProvider[] {
+  const preferred = STT_ORDER.includes(env.STT_PROVIDER) ? env.STT_PROVIDER : 'groq';
+  return [preferred, ...STT_ORDER.filter((id) => id !== preferred)].filter(
+    (id) => id === 'workers-ai' || Boolean(env[PROVIDERS[id].keyVar]),
+  );
+}
+
+/**
+ * Try each provider in turn. Only a thrown error rolls over — an empty result
+ * is taken at face value, because a silent chunk is normal (music, a gap) and
+ * re-running all three providers on it would cost time and money for nothing.
+ */
+async function transcribe(env: Env, audio: ArrayBuffer): Promise<any> {
+  const chain = sttChain(env);
+  let last: unknown;
+
+  for (const id of chain) {
+    try {
+      return id === 'workers-ai'
+        ? await transcribeWorkersAI(env, audio)
+        : await transcribeExternal(env, audio, id);
+    } catch (err) {
+      last = err;
+      console.error(`[ai] ${id} transcription failed, falling back:`, err);
+    }
+  }
+
+  throw last ?? new Error('no transcription provider available');
 }
 
 /**
