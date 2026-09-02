@@ -7,12 +7,12 @@ import {
   type WorkflowTimeoutDuration,
 } from 'cloudflare:workers';
 import { transcribeChunk, translateSegments } from './ai';
-import { fetchMedia, maxSourceBytes, resolveVideo } from './download';
-import { ffmpegFor } from './ffmpeg';
-import { FONTS, loadSettings } from './settings';
-import { buildAss } from './subtitles';
-import { telegram } from './telegram';
-import type { CaptionJob, Env, Segment, VideoMeta } from './types';
+import { fetchMedia, maxSourceBytes, resolveVideo } from '../media/download';
+import { ffmpegFor } from '../media/ffmpeg';
+import { FONTS, loadSettings } from '../captions/settings';
+import { buildAss } from '../captions/subtitles';
+import { telegram } from '../bot/telegram';
+import type { CaptionJob, Env, Segment, VideoMeta } from '../types';
 
 const RETRY: WorkflowStepConfig = {
   retries: { limit: 2, delay: '5 seconds', backoff: 'exponential' },

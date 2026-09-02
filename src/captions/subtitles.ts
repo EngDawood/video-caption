@@ -1,4 +1,4 @@
-import type { Segment } from './types';
+import type { Segment } from '../types';
 
 /**
  * ASS subtitle generation for hard-burn via libass.

@@ -1,5 +1,5 @@
-import type { FfmpegContainer } from './container';
-import type { CaptionPosition, CaptionPreset, CaptionSize } from './subtitles';
+import type { FfmpegContainer } from './media/container';
+import type { CaptionPosition, CaptionPreset, CaptionSize } from './captions/subtitles';
 
 export interface Env {
   AI: Ai;

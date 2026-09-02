@@ -1,5 +1,5 @@
 import { Container } from '@cloudflare/containers';
-import type { Env } from './types';
+import type { Env } from '../types';
 
 /**
  * The ffmpeg worker. One instance per job (routed with getByName(jobId)), so

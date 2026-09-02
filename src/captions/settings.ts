@@ -7,7 +7,7 @@ import {
   type CaptionSize,
   type TextColorId,
 } from './subtitles';
-import type { Env } from './types';
+import type { Env } from '../types';
 
 /**
  * Per-chat caption settings, edited from the bot's /settings menu and stored

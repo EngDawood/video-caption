@@ -6,9 +6,9 @@ import {
   saveSettings,
   type CaptionSettings,
   type SettingsField,
-} from './settings';
+} from '../captions/settings';
 import { telegram, type InlineKeyboard } from './telegram';
-import type { Env } from './types';
+import type { Env } from '../types';
 
 /**
  * The /settings inline-keyboard menu.

@@ -1,4 +1,4 @@
-import type { Env, Segment } from './types';
+import type { Env, Segment } from '../types';
 
 const WHISPER = '@cf/openai/whisper-large-v3-turbo';
 const TRANSLATOR = '@cf/meta/m2m100-1.2b';

@@ -1,4 +1,4 @@
-import type { Env } from './types';
+import type { Env } from '../types';
 
 /**
  * Container usage for the current billing month, for the bot's /usage command.

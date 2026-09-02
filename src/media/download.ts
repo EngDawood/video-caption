@@ -1,5 +1,5 @@
 import { NonRetryableError } from 'cloudflare:workflows';
-import type { Env } from './types';
+import type { Env } from '../types';
 
 const DEFAULT_BASE = 'https://dl.engdawood.com';
 

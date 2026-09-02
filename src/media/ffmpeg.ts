@@ -1,4 +1,4 @@
-import type { Env, VideoMeta } from './types';
+import type { Env, VideoMeta } from '../types';
 
 const BASE = 'http://ffmpeg';
 

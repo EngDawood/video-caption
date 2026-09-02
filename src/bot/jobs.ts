@@ -1,7 +1,7 @@
 import { NonRetryableError } from 'cloudflare:workflows';
-import { resolveVideo } from './download';
+import { resolveVideo } from '../media/download';
 import { telegram, type InlineKeyboard } from './telegram';
-import type { Env } from './types';
+import type { Env } from '../types';
 
 /**
  * Everything between a message arriving and a CaptionWorkflow running.
