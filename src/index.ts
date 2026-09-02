@@ -1,7 +1,14 @@
 import { NonRetryableError } from 'cloudflare:workflows';
 import { extractSourceUrl, maxSourceBytes } from './media/download';
 import { handleEditCallback, isEditCallback } from './bot/edit';
-import { handleOfferCallback, isOfferCallback, sendOffer, startJob } from './bot/jobs';
+import {
+  handleCancelCallback,
+  handleOfferCallback,
+  isCancelCallback,
+  isOfferCallback,
+  sendOffer,
+  startJob,
+} from './bot/jobs';
 import { MENU_TITLE, handleMenuCallback, rootKeyboard, summary } from './bot/menu';
 import { loadSettings } from './captions/settings';
 import { extractVideo, telegram, type TgUpdate } from './bot/telegram';
@@ -21,7 +28,7 @@ const help = (env: Env) =>
     '2. translate it to Arabic,',
     '3. burn the Arabic captions into the video and send it back.',
     '',
-    'A link is previewed first — nothing is transcribed until you tap ✅ Caption it.',
+    'A link is previewed first — nothing is transcribed until you tap ✅ Caption it, and a running job can be stopped with ✖️ Stop on its status line.',
     '',
     `Uploads must be under ${TELEGRAM_DOWNLOAD_LIMIT / 1024 / 1024} MB, which is a Telegram limit on what bots may download. Videos from a link must be under ${Math.round(maxSourceBytes(env) / 1024 / 1024)} MB, so the captioned result still fits back into Telegram.`,
     '',
@@ -97,6 +104,11 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
         query.data,
         Boolean(origin.photo),
       );
+      return;
+    }
+
+    if (isCancelCallback(query.data)) {
+      await handleCancelCallback(env, origin.chat.id, origin.message_id, query.id, query.data);
       return;
     }
 

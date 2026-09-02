@@ -114,6 +114,41 @@ export const MENUS: Record<SettingsField, Menu> = {
   },
 };
 
+/**
+ * Field order for the compact code below. Append only — never reorder or
+ * remove, or a code minted by the previous deploy decodes to the wrong
+ * settings on a button someone taps after a release.
+ */
+const CODE_FIELDS: SettingsField[] = ['preset', 'font', 'size', 'color', 'background', 'position', 'chars'];
+
+/**
+ * Squeeze a whole settings object into one base-36 digit per field.
+ *
+ * This is what lets the per-video edit menu carry its draft inside
+ * `callback_data` instead of reading and rewriting KV on every tap. KV is
+ * eventually consistent, so a read-modify-write per button press can serve a
+ * stale draft and silently drop changes the user already made; a code on the
+ * button cannot go stale because the button *is* the state.
+ */
+export function encodeSettings(settings: CaptionSettings): string {
+  return CODE_FIELDS.map((field) => {
+    const index = MENUS[field].options.findIndex((o) => o.value === settings[field]);
+    return Math.max(0, index).toString(36);
+  }).join('');
+}
+
+/** Read a code back, falling back to `base` for anything unreadable. */
+export function decodeSettings(code: string, base: CaptionSettings): CaptionSettings {
+  const settings = { ...base };
+
+  CODE_FIELDS.forEach((field, i) => {
+    const option = MENUS[field].options[parseInt(code[i] ?? '', 36)];
+    if (option) (settings as Record<string, string>)[field] = option.value;
+  });
+
+  return settings;
+}
+
 export function defaults(env: Env): CaptionSettings {
   // Match the deployed font var back to a known font id where possible.
   const font =

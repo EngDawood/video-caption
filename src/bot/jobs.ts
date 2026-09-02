@@ -1,5 +1,7 @@
 import { NonRetryableError } from 'cloudflare:workflows';
 import { resolveVideo } from '../media/download';
+import { purgeAssets } from '../media/assets';
+import { ffmpegFor } from '../media/ffmpeg';
 import { telegram, type InlineKeyboard } from './telegram';
 import type { Env } from '../types';
 
@@ -12,14 +14,19 @@ import type { Env } from '../types';
  *
  * callback_data grammar (Telegram caps it at 64 bytes, and a post URL rarely
  * fits, so only a short id rides on the button — the URL lives in KV):
- *   d:<id>    caption it
- *   dx:<id>   cancel
+ *   d:<id>       caption it
+ *   dx:<id>      do not
+ *   k:<token>    stop a job that is already running
  */
 
 /** How long a confirm card stays tappable. */
 const OFFER_TTL_SECONDS = 3600;
 
+/** A job cannot outlive this, so neither need its cancel button. */
+const CANCEL_TTL_SECONDS = 3600;
+
 const pendingKey = (id: string) => `pending:${id}`;
+export const cancelKey = (token: string) => `cancel:${token}`;
 
 interface Pending {
   url: string;
@@ -31,6 +38,15 @@ export function isOfferCallback(data: string): boolean {
   return data.startsWith('d:') || data.startsWith('dx:');
 }
 
+export function isCancelCallback(data: string): boolean {
+  return data.startsWith('k:');
+}
+
+/** The ✖️ Stop button carried on a running job's status line. */
+export const cancelKeyboard = (token: string): InlineKeyboard => [
+  [{ text: '✖️ Stop', callback_data: `k:${token}` }],
+];
+
 /** Post the status message and kick off a caption job for it. */
 export async function startJob(
   env: Env,
@@ -39,13 +55,70 @@ export async function startJob(
   source: { fileId: string; sourceUrl?: never } | { sourceUrl: string; fileId?: never },
 ): Promise<void> {
   const tg = telegram(env.TELEGRAM_BOT_TOKEN);
-  const status = await tg.sendMessage(chatId, '⏳ Queued…', messageId);
   const jobId = crypto.randomUUID();
+
+  // The token is minted before the status message so the ✖️ Stop button can go
+  // on from the very first line — a job is at its most cancellable while it is
+  // still queued, which is exactly when a mistaken send gets noticed.
+  const token = crypto.randomUUID().slice(0, 8);
+  await env.CAPTION_SETTINGS?.put(cancelKey(token), jobId, { expirationTtl: CANCEL_TTL_SECONDS }).catch(
+    (err) => console.error('[jobs] could not store a cancel token:', err),
+  );
+
+  const status = await tg.sendMessage(chatId, '⏳ Queued…', messageId, cancelKeyboard(token));
 
   await env.CAPTION_WORKFLOW.create({
     id: jobId,
-    params: { jobId, chatId, messageId, ...source, statusMessageId: status.message_id },
+    params: {
+      jobId,
+      chatId,
+      messageId,
+      ...source,
+      statusMessageId: status.message_id,
+      cancelToken: token,
+    },
   });
+}
+
+/**
+ * Stop a running job.
+ *
+ * Terminating the workflow is not enough on its own: the container bills for
+ * as long as it is awake, so it is stopped here rather than left to its idle
+ * timer, and the half-finished files go with it.
+ */
+export async function handleCancelCallback(
+  env: Env,
+  chatId: number,
+  messageId: number,
+  callbackId: string,
+  data: string,
+): Promise<void> {
+  const tg = telegram(env.TELEGRAM_BOT_TOKEN);
+  const token = data.slice(data.indexOf(':') + 1);
+
+  const jobId = await env.CAPTION_SETTINGS?.get(cancelKey(token));
+  if (!jobId) {
+    await tg.answerCallbackQuery(callbackId, 'That job has already finished.');
+    await tg.editMessageText(chatId, messageId, '⌛ Nothing left to stop.');
+    return;
+  }
+
+  // Spent either way, so a second tap cannot race the first.
+  await env.CAPTION_SETTINGS?.delete(cancelKey(token)).catch(() => {});
+
+  try {
+    const instance = await env.CAPTION_WORKFLOW.get(jobId);
+    await instance.terminate();
+  } catch (err) {
+    console.error(`[jobs] could not terminate ${jobId}:`, err);
+  }
+
+  await ffmpegFor(env, jobId).cleanup();
+  await purgeAssets(env, jobId);
+
+  await tg.answerCallbackQuery(callbackId, 'Stopped');
+  await tg.editMessageText(chatId, messageId, '✖️ Stopped.');
 }
 
 /**

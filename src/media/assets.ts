@@ -6,8 +6,8 @@ import type { Env } from '../types';
  * The input video and the translated cues outlive the run that produced them,
  * because a restyle re-burns from exactly these two and re-fetching or
  * re-transcribing would cost far more than the storage does. They are dropped
- * when the user closes the ✏️ Edit card — set a lifecycle rule on the `jobs/`
- * prefix as a backstop for the cards nobody ever taps.
+ * when the user closes the ✏️ Edit card; `npm run r2-lifecycle` installs the
+ * backstop for the cards nobody ever taps.
  */
 export const assetKeys = (jobId: string) => ({
   input: `jobs/${jobId}/input.mp4`,

@@ -13,6 +13,7 @@ import { ffmpegFor } from '../media/ffmpeg';
 import { FONTS, loadSettings, type CaptionSettings } from '../captions/settings';
 import { buildAss } from '../captions/subtitles';
 import { sendEditCard } from '../bot/edit';
+import { cancelKey, cancelKeyboard } from '../bot/jobs';
 import { telegram } from '../bot/telegram';
 import type { CaptionJob, Env, Segment, VideoMeta } from '../types';
 
@@ -44,7 +45,16 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
     const tg = telegram(env.TELEGRAM_BOT_TOKEN);
     const ffmpeg = ffmpegFor(env, jobId);
 
+    // Telegram drops an inline keyboard from any edit that does not re-send
+    // it, so every progress line has to carry the ✖️ Stop button along.
+    const keyboard = event.payload.cancelToken ? cancelKeyboard(event.payload.cancelToken) : undefined;
     const say = (text: string) =>
+      statusMessageId
+        ? tg.editMessageText(chatId, statusMessageId, text, keyboard)
+        : tg.sendMessage(chatId, text).catch(() => null);
+
+    /** For lines that end the job: the button would have nothing left to stop. */
+    const settle = (text: string) =>
       statusMessageId
         ? tg.editMessageText(chatId, statusMessageId, text)
         : tg.sendMessage(chatId, text).catch(() => null);
@@ -69,14 +79,6 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
 
         meta = stored.meta;
         cues = stored.segments;
-
-        await step.do('load-video', longStep('5 minutes'), async () => {
-          await say('⏳ Reloading the video…');
-          const object = await env.MEDIA.get(keys.input);
-          if (!object) throw new NonRetryableError(EXPIRED);
-          // Nothing here reads the audio track — only the video is re-encoded.
-          await ffmpeg.uploadVideo(await object.arrayBuffer(), { skipAudio: true });
-        });
       } else {
         // 1. Get the source video into R2, so later steps can re-read it without
         //    hitting the Bot API — or the expiring social link — again.
@@ -107,7 +109,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
 
         const maxSeconds = Number(env.MAX_VIDEO_SECONDS || 900);
         if (meta.duration > maxSeconds) {
-          await say(`⚠️ Video is ${Math.round(meta.duration)}s, limit is ${maxSeconds}s.`);
+          await settle(`⚠️ Video is ${Math.round(meta.duration)}s, limit is ${maxSeconds}s.`);
           await this.abandon(ffmpeg, assetJobId);
           return;
         }
@@ -131,10 +133,18 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
         }
 
         if (transcribed.length === 0) {
-          await say('⚠️ No speech found in this video.');
+          await settle('⚠️ No speech found in this video.');
           await this.abandon(ffmpeg, assetJobId);
           return;
         }
+
+        // Nothing between here and the burn needs ffmpeg, and translating a
+        // few hundred cues takes minutes. A container bills for its memory the
+        // whole time it is awake, so it is stopped rather than left idling
+        // through a phase that never touches it.
+        await step.do('release-container', async () => {
+          await ffmpeg.cleanup();
+        });
 
         // 4. Translate each cue, then park the result next to the video. Those
         //    two objects are everything a re-burn needs, and keeping them turns
@@ -151,7 +161,18 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
         cues = translated;
       }
 
-      // 5. Burn the Arabic in.
+      // 5. Put the video back in front of ffmpeg. Both paths arrive here with
+      //    no container: a first run stopped it before translating, and a
+      //    re-burn never had one. Audio is skipped — the burn re-encodes the
+      //    original track and nothing reads the extracted one.
+      await step.do('load-video', longStep('5 minutes'), async () => {
+        await say('⏳ Preparing to burn…');
+        const object = await env.MEDIA.get(keys.input);
+        if (!object) throw new NonRetryableError(EXPIRED);
+        await ffmpeg.uploadVideo(await object.arrayBuffer(), { skipAudio: true });
+      });
+
+      // 6. Burn the Arabic in.
       await step.do('burn-subtitles', longStep('10 minutes'), async () => {
         await say('⏳ Burning captions into the video…');
         const font = FONTS[settings.font];
@@ -179,11 +200,11 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
           return burned;
         };
 
-        await this.withVideoLoaded(jobId, keys.input, burn, mode === 'restyle');
+        await this.withVideoLoaded(jobId, keys.input, burn, true);
         return { lines: cues.length };
       });
 
-      // 6. Send it back.
+      // 7. Send it back.
       await step.do('deliver', RETRY, async () => {
         const object = await env.MEDIA.get(keys.output);
         if (!object) throw new Error('burned video missing from R2');
@@ -191,22 +212,24 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
       });
 
       await step.do('cleanup', async () => {
-        await say('✅ Done.');
+        await settle('✅ Done.');
         await ffmpeg.cleanup();
+        await this.forgetCancelToken(event.payload.cancelToken);
         // The input and the cues stay: they are what makes the ✏️ Edit card
         // below cheap. Closing that card drops them.
         await env.MEDIA.delete(keys.output);
       });
 
-      // 7. Offer to change how it looks, for this video only.
+      // 8. Offer to change how it looks, for this video only.
       await step.do('offer-restyle', async () => {
         await sendEditCard(env, chatId, messageId, assetJobId, settings);
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       console.error(`[workflow] job ${jobId} failed:`, reason);
-      await say(`❌ Failed: ${reason}`);
+      await settle(`❌ Failed: ${reason}`);
       await ffmpeg.cleanup();
+      await this.forgetCancelToken(event.payload.cancelToken);
       throw err;
     }
   }
@@ -218,6 +241,16 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
    * time it is awake, so walking away without this leaves the idle timer to
    * charge for work that already ended.
    */
+  /**
+   * Retire the ✖️ Stop button's token once the job is past stopping, so a late
+   * tap says "already finished" instead of terminating nothing and deleting
+   * files the ✏️ Edit card still needs.
+   */
+  private async forgetCancelToken(token: string | undefined): Promise<void> {
+    if (!token) return;
+    await this.env.CAPTION_SETTINGS?.delete(cancelKey(token)).catch(() => {});
+  }
+
   private async abandon(ffmpeg: ReturnType<typeof ffmpegFor>, assetJobId: string): Promise<void> {
     await ffmpeg.cleanup();
     const keys = assetKeys(assetJobId);

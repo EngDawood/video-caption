@@ -78,6 +78,11 @@ export interface CaptionJob {
   /** Social post URL, when the user sent a link instead. */
   sourceUrl?: string;
   statusMessageId?: number;
+  /**
+   * Keeps the ✖️ Stop button on the status line: every progress edit has to
+   * re-send the keyboard, because Telegram drops it otherwise.
+   */
+  cancelToken?: string;
   /** Defaults to 'full' so jobs queued before this field existed still run. */
   mode?: 'full' | 'restyle';
   /**
