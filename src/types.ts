@@ -4,6 +4,8 @@ import type { CaptionPosition, CaptionPreset, CaptionSize } from './subtitles';
 export interface Env {
   AI: Ai;
   MEDIA: R2Bucket;
+  /** Per-chat caption settings. Without it the deployed defaults are used. */
+  SETTINGS: KVNamespace;
   FFMPEG: DurableObjectNamespace<FfmpegContainer>;
   CAPTION_WORKFLOW: Workflow<CaptionJob>;
 
@@ -20,6 +22,8 @@ export interface Env {
   STT_PROVIDER: 'workers-ai' | 'groq' | 'mistral';
   CHUNK_SECONDS: string;
   MAX_VIDEO_SECONDS: string;
+  /** Longest caption line before it is split into another cue. */
+  MAX_CAPTION_CHARS: string;
 
   // secrets (wrangler secret put)
   TELEGRAM_BOT_TOKEN: string;

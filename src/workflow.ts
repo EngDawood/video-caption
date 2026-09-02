@@ -7,6 +7,7 @@ import {
 } from 'cloudflare:workers';
 import { transcribeChunk, translateSegments } from './ai';
 import { ffmpegFor } from './ffmpeg';
+import { FONTS, loadSettings } from './settings';
 import { buildAss } from './subtitles';
 import { telegram } from './telegram';
 import type { CaptionJob, Env, Segment, VideoMeta } from './types';
@@ -86,15 +87,21 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
       // 5. Burn the Arabic in.
       await step.do('burn-subtitles', longStep('10 minutes'), async () => {
         await say('⏳ Burning captions into the video…');
+        const settings = await loadSettings(env, chatId);
+        const font = FONTS[settings.font];
+
         const ass = buildAss(translated, {
-          font: env.SUBTITLE_FONT,
+          font: font.family,
           width: meta.width ?? 1280,
           height: meta.height ?? 720,
           rtl: (env.TARGET_LANG || 'ar') === 'ar',
-          preset: env.CAPTION_PRESET,
-          size: env.CAPTION_SIZE,
-          position: env.CAPTION_POSITION,
-          allowBold: env.SUBTITLE_FONT_BOLD === 'true',
+          preset: settings.preset,
+          size: settings.size,
+          position: settings.position,
+          color: settings.color,
+          background: settings.background,
+          // Per-font, not per-deployment: only Al Jazeera ships a real bold.
+          allowBold: font.hasBold,
         });
 
         await this.withVideoLoaded(jobId, inputKey, async () => {

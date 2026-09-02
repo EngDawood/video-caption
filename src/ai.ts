@@ -45,11 +45,90 @@ export async function transcribeChunk(
       ? await transcribeExternal(env, audio, env.STT_PROVIDER)
       : await transcribeWorkersAI(env, audio);
 
-  return normalize(raw, fallbackDuration).map((s) => ({
+  // Whisper hands back whole paragraphs — up to ~30s in one segment. Break
+  // them into caption-sized cues here so the translator also receives
+  // sentence-sized units instead of a wall of text.
+  const segments = resegment(normalize(raw, fallbackDuration), captionLimits(env));
+
+  return segments.map((s) => ({
     start: s.start + offset,
     end: s.end + offset,
     text: s.text,
   }));
+}
+
+interface CaptionLimits {
+  maxChars: number;
+}
+
+function captionLimits(env: Env): CaptionLimits {
+  return { maxChars: Number(env.MAX_CAPTION_CHARS || 42) };
+}
+
+/** Sentence enders, Latin and Arabic (؟ question mark, ۔ full stop). */
+const SENTENCE_END = /[.!?؟۔]$/;
+/** Clause breaks — second choice when no sentence boundary fits. */
+const CLAUSE_END = /[,;:،؛]$/;
+
+/**
+ * Split cues that are too long to read into shorter ones, preferring sentence
+ * boundaries, then clause boundaries, then plain word breaks. New timings are
+ * interpolated across the original span by character count — close enough at
+ * subtitle granularity, and it keeps cues butted up against each other.
+ */
+export function resegment(segments: Segment[], limits: CaptionLimits): Segment[] {
+  const out: Segment[] = [];
+
+  for (const segment of segments) {
+    const duration = segment.end - segment.start;
+    const words = segment.text.split(/\s+/).filter(Boolean);
+
+    // Length is the only reason to split. A short line that happens to span a
+    // long pause should keep its full timing — truncating it would blank the
+    // caption while the speaker is still on that sentence.
+    if (segment.text.length <= limits.maxChars) {
+      out.push(segment);
+      continue;
+    }
+
+    // Greedily fill lines, closing early on a sentence/clause boundary once the
+    // line is long enough that the break will not look abrupt.
+    const chunks: string[] = [];
+    let current: string[] = [];
+
+    for (const word of words) {
+      const candidate = current.length ? `${current.join(' ')} ${word}` : word;
+
+      if (candidate.length > limits.maxChars && current.length) {
+        chunks.push(current.join(' '));
+        current = [word];
+        continue;
+      }
+
+      current.push(word);
+      const length = candidate.length;
+      const atSentence = SENTENCE_END.test(word);
+      const atClause = CLAUSE_END.test(word);
+
+      if ((atSentence && length >= limits.maxChars * 0.4) || (atClause && length >= limits.maxChars * 0.7)) {
+        chunks.push(current.join(' '));
+        current = [];
+      }
+    }
+    if (current.length) chunks.push(current.join(' '));
+
+    // Spread the original time span over the chunks, weighted by length.
+    const total = chunks.reduce((sum, c) => sum + c.length, 0) || 1;
+    let cursor = segment.start;
+
+    for (const chunk of chunks) {
+      const span = (chunk.length / total) * duration;
+      out.push({ start: cursor, end: cursor + span, text: chunk });
+      cursor += span;
+    }
+  }
+
+  return out;
 }
 
 async function transcribeWorkersAI(env: Env, audio: ArrayBuffer): Promise<any> {
@@ -204,10 +283,14 @@ export async function translateSegments(env: Env, segments: Segment[]): Promise<
   const source = env.SOURCE_LANG && env.SOURCE_LANG !== 'auto' ? env.SOURCE_LANG : 'en';
   const target = env.TARGET_LANG || 'ar';
 
-  return mapLimit(segments, 6, async (segment) => {
+  const translated = await mapLimit(segments, 6, async (segment) => {
     const text = await translateText(env, segment.text, source, target);
     return { ...segment, text };
   });
+
+  // Arabic renders at a different length than the source, so a cue that fit
+  // before translation may not fit after it.
+  return resegment(translated, captionLimits(env));
 }
 
 async function translateText(env: Env, text: string, source: string, target: string): Promise<string> {

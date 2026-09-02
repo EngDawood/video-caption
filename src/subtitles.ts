@@ -36,6 +36,27 @@ const COLOR = {
   shadow75Black: assColor(0, 0, 0, 0.25),
 };
 
+/** Text colours offered in the bot's settings menu. */
+export const TEXT_COLORS = {
+  white: { label: 'White', value: COLOR.white },
+  yellow: { label: 'Yellow', value: COLOR.hormoziYellow },
+  green: { label: 'Green', value: assColor(0, 255, 135) },
+  cyan: { label: 'Cyan', value: assColor(0, 209, 255) },
+  black: { label: 'Black', value: COLOR.black },
+} as const;
+
+export type TextColorId = keyof typeof TEXT_COLORS;
+
+/** Background treatments, independent of the preset's own choice. */
+export const BACKGROUNDS = {
+  preset: { label: 'Preset default' },
+  none: { label: 'None (outline only)' },
+  box: { label: 'Translucent box' },
+  solid: { label: 'Solid box' },
+} as const;
+
+export type BackgroundId = keyof typeof BACKGROUNDS;
+
 export type CaptionPreset = 'clean' | 'hormozi' | 'cinematic' | 'youtube' | 'naskh';
 export type CaptionSize = 'small' | 'medium' | 'large';
 export type CaptionPosition = 'top' | 'center' | 'bottom';
@@ -137,6 +158,40 @@ export interface AssOptions {
    * otherwise, which smears Arabic letterforms.
    */
   allowBold?: boolean;
+  /** Overrides the preset's text colour. */
+  color?: TextColorId;
+  /** Overrides the preset's background treatment. */
+  background?: BackgroundId;
+}
+
+/** Apply the per-axis overrides on top of a preset, mirroring the web UI. */
+function applyOverrides(base: PresetStyle, opts: AssOptions): PresetStyle {
+  const style = { ...base };
+
+  if (opts.color && TEXT_COLORS[opts.color]) {
+    style.primary = TEXT_COLORS[opts.color].value;
+  }
+
+  switch (opts.background) {
+    case 'none':
+      style.borderStyle = 1;
+      style.outlineColour = COLOR.black;
+      // Without a box the text needs an outline to stay readable.
+      if (style.outline === 'none') style.outline = 'med';
+      break;
+    case 'box':
+      style.borderStyle = 3;
+      style.outlineColour = COLOR.box75Black;
+      break;
+    case 'solid':
+      style.borderStyle = 3;
+      style.outlineColour = COLOR.black;
+      break;
+    default:
+      break;
+  }
+
+  return style;
 }
 
 /**
@@ -147,7 +202,7 @@ export function buildAss(segments: Segment[], opts: AssOptions): string {
   const width = opts.width || 1280;
   const height = opts.height || 720;
   const rtl = opts.rtl !== false;
-  const style = PRESETS[opts.preset ?? 'clean'] ?? PRESETS.clean;
+  const style = applyOverrides(PRESETS[opts.preset ?? 'clean'] ?? PRESETS.clean, opts);
   const position = opts.position ?? 'bottom';
 
   const scale = SIZE_SCALE[opts.size ?? 'medium'] ?? 1;

@@ -26,28 +26,49 @@ export interface TgMessage {
   text?: string;
 }
 
+export interface TgCallbackQuery {
+  id: string;
+  data?: string;
+  message?: TgMessage;
+  from: { id: number };
+}
+
 export interface TgUpdate {
   update_id: number;
   message?: TgMessage;
   edited_message?: TgMessage;
+  callback_query?: TgCallbackQuery;
 }
+
+/** One row of inline-keyboard buttons. */
+export type InlineKeyboard = Array<Array<{ text: string; callback_data: string }>>;
 
 export function telegram(token: string) {
   return {
-    sendMessage(chatId: number, text: string, replyTo?: number) {
+    sendMessage(chatId: number, text: string, replyTo?: number, keyboard?: InlineKeyboard) {
       return call<TgMessage>(token, 'sendMessage', {
         chat_id: chatId,
         text,
         ...(replyTo ? { reply_to_message_id: replyTo, allow_sending_without_reply: true } : {}),
+        ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
       });
     },
 
-    editMessageText(chatId: number, messageId: number, text: string) {
+    editMessageText(chatId: number, messageId: number, text: string, keyboard?: InlineKeyboard) {
       // Editing to identical text is an API error; never let status updates break the job.
       return call<TgMessage>(token, 'editMessageText', {
         chat_id: chatId,
         message_id: messageId,
         text,
+        ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+      }).catch(() => null);
+    },
+
+    /** Every callback_query must be answered or the button spins forever. */
+    answerCallbackQuery(id: string, text?: string) {
+      return call(token, 'answerCallbackQuery', {
+        callback_query_id: id,
+        ...(text ? { text } : {}),
       }).catch(() => null);
     },
 

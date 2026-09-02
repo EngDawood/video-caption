@@ -1,3 +1,5 @@
+import { MENU_TITLE, handleMenuCallback, rootKeyboard, summary } from './menu';
+import { loadSettings } from './settings';
 import { extractVideo, telegram, type TgUpdate } from './telegram';
 import type { Env } from './types';
 
@@ -14,6 +16,8 @@ const HELP = [
   '3. burn the Arabic captions into the video and send it back.',
   '',
   `Videos must be under ${TELEGRAM_DOWNLOAD_LIMIT / 1024 / 1024} MB — that is a Telegram limit on what bots may download.`,
+  '',
+  'Send /settings to change the caption style, font, size, colour or position.',
 ].join('\n');
 
 export default {
@@ -54,6 +58,15 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
+  // Button presses in the /settings menu arrive as callback queries.
+  if (update.callback_query) {
+    const query = update.callback_query;
+    const origin = query.message;
+    if (!origin || !query.data) return;
+    await handleMenuCallback(env, origin.chat.id, origin.message_id, query.id, query.data);
+    return;
+  }
+
   const message = update.message ?? update.edited_message;
   if (!message) return;
 
@@ -64,7 +77,17 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
     const video = extractVideo(message);
 
     if (!video) {
-      if (message.text) await tg.sendMessage(chatId, HELP, message.message_id);
+      const command = message.text?.trim().split(/[\s@]/)[0];
+
+      if (command === '/settings') {
+        const settings = await loadSettings(env, chatId);
+        await tg.sendMessage(chatId, MENU_TITLE, message.message_id, rootKeyboard(settings));
+      } else if (command === '/style') {
+        const settings = await loadSettings(env, chatId);
+        await tg.sendMessage(chatId, summary(settings), message.message_id);
+      } else if (message.text) {
+        await tg.sendMessage(chatId, HELP, message.message_id);
+      }
       return;
     }
 

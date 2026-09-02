@@ -23,6 +23,14 @@
 			"remote": true
 		}
 	],
+	// Per-chat caption settings from the bot's /settings menu.
+	// Create with: npx wrangler kv namespace create SETTINGS
+	"kv_namespaces": [
+		{
+			"binding": "SETTINGS",
+			"id": "<run: npx wrangler kv namespace create SETTINGS>"
+		}
+	],
 	// Dockerfile lives at the project root so the build context can see ./public.
 	"containers": [
 		{
@@ -73,6 +81,10 @@
 		// workers-ai (no key) | groq (GROQ_API_KEY) | mistral (MISTRAL_API_KEY)
 		"STT_PROVIDER": "workers-ai",
 		"CHUNK_SECONDS": "240",
-		"MAX_VIDEO_SECONDS": "900"
+		"MAX_VIDEO_SECONDS": "900",
+		// Caption pacing. Whisper returns long paragraphs; this splits them.
+		// ~42 chars is the broadcast norm — lower for punchier one-line cues.
+		// Words are never broken, so a single longer word overflows intact.
+		"MAX_CAPTION_CHARS": "42"
 	}
 }
