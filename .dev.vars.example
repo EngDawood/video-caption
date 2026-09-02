@@ -22,3 +22,9 @@ ADMIN_CHAT_ID=
 # GROQ_API_KEY=gsk_...
 # STT_PROVIDER=mistral  -> https://console.mistral.ai/api-keys
 # MISTRAL_API_KEY=...
+
+# Lets the bot caption a video from a social link instead of an upload.
+# Ask the download-media-bot admin for the key (it is write-only in Wrangler).
+# In production: npx wrangler secret put DOWNLOAD_API_KEY
+# Unset means links are politely refused; uploads keep working.
+DOWNLOAD_API_KEY=

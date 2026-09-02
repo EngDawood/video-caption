@@ -24,6 +24,8 @@ export interface TgMessage {
   document?: { file_id: string; file_size?: number; mime_type?: string; file_name?: string };
   video_note?: { file_id: string; file_size?: number; duration?: number };
   text?: string;
+  /** Text attached to a media message — a link can arrive here instead. */
+  caption?: string;
 }
 
 export interface TgCallbackQuery {

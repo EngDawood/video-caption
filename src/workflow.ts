@@ -1,3 +1,4 @@
+import { NonRetryableError } from 'cloudflare:workflows';
 import {
   WorkflowEntrypoint,
   type WorkflowEvent,
@@ -6,6 +7,7 @@ import {
   type WorkflowTimeoutDuration,
 } from 'cloudflare:workers';
 import { transcribeChunk, translateSegments } from './ai';
+import { fetchMedia, resolveVideo } from './download';
 import { ffmpegFor } from './ffmpeg';
 import { FONTS, loadSettings } from './settings';
 import { buildAss } from './subtitles';
@@ -18,9 +20,16 @@ const RETRY: WorkflowStepConfig = {
 
 const longStep = (timeout: WorkflowTimeoutDuration): WorkflowStepConfig => ({ ...RETRY, timeout });
 
+/**
+ * Ceiling on a video pulled from a social link. Telegram caps what a bot may
+ * upload at 50 MB, and burning captions re-encodes rather than shrinks, so a
+ * source near the cap can produce an undeliverable result.
+ */
+const maxSourceBytes = (env: Env): number => Number(env.MAX_SOURCE_MB || 45) * 1024 * 1024;
+
 export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
   async run(event: WorkflowEvent<CaptionJob>, step: WorkflowStep) {
-    const { jobId, chatId, messageId, fileId, statusMessageId } = event.payload;
+    const { jobId, chatId, messageId, fileId, sourceUrl, statusMessageId } = event.payload;
     const env = this.env;
     const tg = telegram(env.TELEGRAM_BOT_TOKEN);
     const ffmpeg = ffmpegFor(env, jobId);
@@ -33,9 +42,20 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
         : tg.sendMessage(chatId, text).catch(() => null);
 
     try {
-      // 1. Get the source video out of Telegram and into R2, so later steps can
-      //    re-read it without hitting the Bot API again.
+      // 1. Get the source video into R2, so later steps can re-read it without
+      //    hitting the Bot API — or the expiring social link — again.
       await step.do('fetch-video', RETRY, async () => {
+        if (sourceUrl) {
+          // Resolve and download inside one step: the links the API hands back
+          // are signed and short-lived, so they must not outlive this attempt.
+          const media = await resolveVideo(env, sourceUrl);
+          await say(`⏳ Downloading from ${media.platform}…`);
+          const bytes = await fetchMedia(media, maxSourceBytes(env));
+          await env.MEDIA.put(inputKey, bytes);
+          return { bytes: bytes.byteLength, platform: media.platform };
+        }
+
+        if (!fileId) throw new NonRetryableError('job has neither a file nor a link');
         const bytes = await tg.download(fileId);
         await env.MEDIA.put(inputKey, bytes);
         return { bytes: bytes.byteLength };

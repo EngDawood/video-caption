@@ -88,6 +88,14 @@
 		// ~42 chars is the broadcast norm — lower for punchier one-line cues.
 		// Words are never broken, so a single longer word overflows intact.
 		"MAX_CAPTION_CHARS": "42",
+		// Social links are resolved by download-media-bot, which returns direct
+		// media links rather than bytes. Override only to point at another
+		// deployment; the API key itself is a secret (DOWNLOAD_API_KEY).
+		"DOWNLOAD_API_BASE": "https://dl.engdawood.com",
+		// Ceiling on a video pulled from a link. Telegram refuses bot uploads
+		// over 50 MB and burning captions re-encodes rather than shrinks, so
+		// leave headroom below that.
+		"MAX_SOURCE_MB": "45",
 		// For /usage. Not a secret — it appears in every dashboard URL. Only
 		// the paired CLOUDFLARE_API_TOKEN is a secret (Account Analytics: Read).
 		"CLOUDFLARE_ACCOUNT_ID": "c53938b50ea00b247dcd72dd2e9eada3"
