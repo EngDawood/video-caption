@@ -87,7 +87,10 @@
 		// Caption pacing. Whisper returns long paragraphs; this splits them.
 		// ~42 chars is the broadcast norm — lower for punchier one-line cues.
 		// Words are never broken, so a single longer word overflows intact.
-		"MAX_CAPTION_CHARS": "42"
+		"MAX_CAPTION_CHARS": "42",
+		// For /usage. Not a secret — it appears in every dashboard URL. Only
+		// the paired CLOUDFLARE_API_TOKEN is a secret (Account Analytics: Read).
+		"CLOUDFLARE_ACCOUNT_ID": "c53938b50ea00b247dcd72dd2e9eada3"
 		// ADMIN_CHAT_ID is deliberately NOT a var — it is set as a secret so it
 		// stays out of git. Declaring it here too would collide with the secret.
 	}
