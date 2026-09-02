@@ -23,6 +23,20 @@ export const FONTS = {
 
 export type FontId = keyof typeof FONTS;
 
+/**
+ * Offered line lengths, in characters. Stored as strings because every menu
+ * value is a string on the way through a callback_data payload.
+ */
+export const CHAR_LIMITS = {
+  '28': { label: '28 — punchy, one short line' },
+  '36': { label: '36 — tight' },
+  '42': { label: '42 — broadcast norm' },
+  '52': { label: '52 — relaxed' },
+  '64': { label: '64 — long lines' },
+} as const;
+
+export type CharLimitId = keyof typeof CHAR_LIMITS;
+
 export interface CaptionSettings {
   preset: CaptionPreset;
   size: CaptionSize;
@@ -30,6 +44,8 @@ export interface CaptionSettings {
   font: FontId;
   color: TextColorId;
   background: BackgroundId;
+  /** Longest caption line before it is split into another cue. */
+  chars: CharLimitId;
 }
 
 export type SettingsField = keyof CaptionSettings;
@@ -91,12 +107,21 @@ export const MENUS: Record<SettingsField, Menu> = {
       { value: 'top', label: 'Top' },
     ],
   },
+  chars: {
+    label: 'Line length',
+    icon: '📏',
+    options: Object.entries(CHAR_LIMITS).map(([value, c]) => ({ value, label: c.label })),
+  },
 };
 
 export function defaults(env: Env): CaptionSettings {
   // Match the deployed font var back to a known font id where possible.
   const font =
     (Object.keys(FONTS) as FontId[]).find((id) => FONTS[id].family === env.SUBTITLE_FONT) ?? 'aljazeera';
+
+  // Only snaps to a menu option when the deployed number is one of them; an
+  // off-menu value would render as a button no tap could ever reproduce.
+  const chars = (env.MAX_CAPTION_CHARS in CHAR_LIMITS ? env.MAX_CAPTION_CHARS : '42') as CharLimitId;
 
   return {
     preset: env.CAPTION_PRESET || 'clean',
@@ -105,6 +130,7 @@ export function defaults(env: Env): CaptionSettings {
     font,
     color: 'white',
     background: 'preset',
+    chars,
   };
 }
 

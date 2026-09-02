@@ -92,6 +92,9 @@
 		// Caption pacing. Whisper returns long paragraphs; this splits them.
 		// ~42 chars is the broadcast norm — lower for punchier one-line cues.
 		// Words are never broken, so a single longer word overflows intact.
+		// This is only the starting point: it is the 📏 Line length row in
+		// /settings and on each video's ✏️ Edit card. Use one of the values the
+		// menu offers (28, 36, 42, 52, 64) or the menu falls back to 42.
 		"MAX_CAPTION_CHARS": "42",
 		// Social links are resolved by download-media-bot, which returns direct
 		// media links rather than bytes. Override only to point at another

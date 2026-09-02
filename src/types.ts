@@ -1,4 +1,5 @@
 import type { FfmpegContainer } from './media/container';
+import type { CaptionSettings } from './captions/settings';
 import type { CaptionPosition, CaptionPreset, CaptionSize } from './captions/subtitles';
 
 export interface Env {
@@ -58,7 +59,16 @@ export interface Segment {
   text: string;
 }
 
-/** Exactly one of `fileId` / `sourceUrl` is set: an upload, or a social link. */
+/**
+ * A caption job.
+ *
+ * `full` fetches, transcribes, translates and burns. `restyle` reuses the text
+ * and the source video an earlier run left in R2 and only burns again, so it
+ * costs one encode instead of a second round of transcription and translation.
+ *
+ * On a `full` job exactly one of `fileId` / `sourceUrl` is set: an upload, or a
+ * social link. A `restyle` job needs neither — it has `assetJobId` instead.
+ */
 export interface CaptionJob {
   jobId: string;
   chatId: number;
@@ -68,6 +78,19 @@ export interface CaptionJob {
   /** Social post URL, when the user sent a link instead. */
   sourceUrl?: string;
   statusMessageId?: number;
+  /** Defaults to 'full' so jobs queued before this field existed still run. */
+  mode?: 'full' | 'restyle';
+  /**
+   * Which job's R2 prefix holds the input video and the translated cues.
+   * Its own `jobId` for a full run; the original job's for a restyle.
+   */
+  assetJobId?: string;
+  /**
+   * Settings frozen at queue time. A restyle carries the per-video draft here
+   * so it burns what the user chose rather than whatever the chat defaults
+   * happen to be by the time the step runs.
+   */
+  settings?: CaptionSettings;
 }
 
 export interface VideoMeta {

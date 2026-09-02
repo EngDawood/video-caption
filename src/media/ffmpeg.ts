@@ -17,9 +17,14 @@ export function ffmpegFor(env: Env, jobId: string) {
   const stub = env.FFMPEG.getByName(jobId);
 
   return {
-    /** Hand over the source video; returns duration/dimensions and extracts the audio track. */
-    async uploadVideo(video: ArrayBuffer): Promise<VideoMeta> {
-      const res = await stub.fetch(`${BASE}/job/video`, {
+    /**
+     * Hand over the source video; returns duration/dimensions and, unless
+     * `skipAudio` is set, extracts the audio track. A re-burn passes
+     * `skipAudio` — it already has the transcript, so the audio pass would be
+     * work nothing reads.
+     */
+    async uploadVideo(video: ArrayBuffer, opts: { skipAudio?: boolean } = {}): Promise<VideoMeta> {
+      const res = await stub.fetch(`${BASE}/job/video${opts.skipAudio ? '?audio=skip' : ''}`, {
         method: 'POST',
         body: video,
         headers: { 'content-type': 'application/octet-stream' },

@@ -11,9 +11,14 @@ import { telegram, type InlineKeyboard } from './telegram';
 import type { Env } from '../types';
 
 /**
- * The /settings inline-keyboard menu.
+ * The inline-keyboard settings menu.
  *
- * callback_data grammar (Telegram caps it at 64 bytes):
+ * The same keyboards drive two flows, so the callback_data prefixes are handed
+ * in as a `MenuScope` rather than hard-coded: /settings edits the chat defaults
+ * (this file), while the ✏️ Edit card edits one video's draft (bot/edit.ts).
+ *
+ * callback_data grammar for the chat-defaults scope (Telegram caps it at 64
+ * bytes):
  *   m:root          open the top level
  *   m:<field>       open one field's options
  *   s:<field>:<v>   choose a value
@@ -24,33 +29,59 @@ const FIELDS = Object.keys(MENUS) as SettingsField[];
 
 export const MENU_TITLE = '⚙️ Caption settings\n\nTap a setting to change it. New videos use these.';
 
+/** Where a keyboard's buttons point, and what sits under the settings rows. */
+export interface MenuScope {
+  /** callback_data that opens a field's options, or the top level. */
+  open: (field: SettingsField | 'root') => string;
+  /** callback_data that selects a value. */
+  pick: (field: SettingsField, value: string) => string;
+  /** Rows appended below the settings rows on the top level. */
+  footer: InlineKeyboard;
+}
+
+const chatScope: MenuScope = {
+  open: (field) => `m:${field}`,
+  pick: (field, value) => `s:${field}:${value}`,
+  footer: [[{ text: '✅ Done', callback_data: 'x' }]],
+};
+
 /** Top level: one row per setting, showing what it is currently set to. */
-export function rootKeyboard(settings: CaptionSettings): InlineKeyboard {
+export function rootKeyboard(settings: CaptionSettings, scope: MenuScope = chatScope): InlineKeyboard {
   const rows: InlineKeyboard = FIELDS.map((field) => [
     {
       text: `${MENUS[field].icon} ${MENUS[field].label}: ${shortLabel(field, settings[field])}`,
-      callback_data: `m:${field}`,
+      callback_data: scope.open(field),
     },
   ]);
-  rows.push([{ text: '✅ Done', callback_data: 'x' }]);
-  return rows;
+  return [...rows, ...scope.footer];
 }
 
 /** One field's options, with a tick against the active one. */
-export function fieldKeyboard(field: SettingsField, settings: CaptionSettings): InlineKeyboard {
+export function fieldKeyboard(
+  field: SettingsField,
+  settings: CaptionSettings,
+  scope: MenuScope = chatScope,
+): InlineKeyboard {
   const rows: InlineKeyboard = MENUS[field].options.map((option) => [
     {
       text: `${settings[field] === option.value ? '✅' : '▫️'} ${option.label}`,
-      callback_data: `s:${field}:${option.value}`,
+      callback_data: scope.pick(field, option.value),
     },
   ]);
-  rows.push([{ text: '⬅️ Back', callback_data: 'm:root' }]);
+  rows.push([{ text: '⬅️ Back', callback_data: scope.open('root') }]);
   return rows;
 }
 
 /** Option labels carry a description after an em dash; the button row wants only the name. */
-function shortLabel(field: SettingsField, value: string): string {
+export function shortLabel(field: SettingsField, value: string): string {
   return labelFor(field, value).split(' — ')[0];
+}
+
+/** Validate a `<field>:<value>` pair coming off a button, in either scope. */
+export function readChoice(field: string, value: string): SettingsField | null {
+  const known = field as SettingsField;
+  if (!MENUS[known] || !isValid(known, value)) return null;
+  return known;
 }
 
 /**
@@ -93,10 +124,9 @@ export async function handleMenuCallback(
   }
 
   if (data.startsWith('s:')) {
-    const [, field, value] = data.split(':') as [string, SettingsField, string];
-    if (!MENUS[field] || !isValid(field, value)) {
-      return void (await tg.answerCallbackQuery(callbackId, 'Unknown option'));
-    }
+    const [, rawField, value] = data.split(':');
+    const field = readChoice(rawField, value);
+    if (!field) return void (await tg.answerCallbackQuery(callbackId, 'Unknown option'));
 
     const updated = { ...settings, [field]: value } as CaptionSettings;
     await saveSettings(env, chatId, updated);

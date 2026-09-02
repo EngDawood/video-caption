@@ -62,6 +62,37 @@ function captionLimits(env: Env): CaptionLimits {
   return { maxChars: Number(env.MAX_CAPTION_CHARS || 42) };
 }
 
+/** Cues further apart than this are separate thoughts and never merged. */
+const MERGE_GAP_SECONDS = 0.35;
+
+/**
+ * Re-fit finished cues to a new line length, in either direction.
+ *
+ * `resegment` only ever splits, so on its own it cannot widen cues that were
+ * already broken up at a smaller limit. The restyle flow needs both directions
+ * — a user raising the limit expects longer lines — so glue contiguous cues
+ * back together first, then split the result as usual.
+ */
+export function refitSegments(segments: Segment[], maxChars: number): Segment[] {
+  const limits: CaptionLimits = { maxChars: Math.max(12, maxChars || 42) };
+  const merged: Segment[] = [];
+
+  for (const segment of segments) {
+    const previous = merged[merged.length - 1];
+    const joined = previous ? `${previous.text} ${segment.text}` : '';
+
+    if (previous && joined.length <= limits.maxChars && segment.start - previous.end <= MERGE_GAP_SECONDS) {
+      previous.text = joined;
+      previous.end = segment.end;
+      continue;
+    }
+
+    merged.push({ ...segment });
+  }
+
+  return resegment(merged, limits);
+}
+
 /** Sentence enders, Latin and Arabic (؟ question mark, ۔ full stop). */
 const SENTENCE_END = /[.!?؟۔]$/;
 /** Clause breaks — second choice when no sentence boundary fits. */
@@ -326,14 +357,14 @@ export async function translateSegments(env: Env, segments: Segment[]): Promise<
   const source = env.SOURCE_LANG && env.SOURCE_LANG !== 'auto' ? env.SOURCE_LANG : 'en';
   const target = env.TARGET_LANG || 'ar';
 
-  const translated = await mapLimit(segments, 6, async (segment) => {
+  // Deliberately returned unfitted. Arabic renders at a different length than
+  // the source, so these cues still need sizing — but that is done at burn
+  // time with `refitSegments`, because the line length is a per-job setting
+  // and a restyle has to be able to re-fit the same text to a new limit.
+  return mapLimit(segments, 6, async (segment) => {
     const text = await translateText(env, segment.text, source, target);
     return { ...segment, text };
   });
-
-  // Arabic renders at a different length than the source, so a cue that fit
-  // before translation may not fit after it.
-  return resegment(translated, captionLimits(env));
 }
 
 async function translateText(env: Env, text: string, source: string, target: string): Promise<string> {

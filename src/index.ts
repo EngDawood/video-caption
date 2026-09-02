@@ -1,5 +1,6 @@
 import { NonRetryableError } from 'cloudflare:workflows';
 import { extractSourceUrl, maxSourceBytes } from './media/download';
+import { handleEditCallback, isEditCallback } from './bot/edit';
 import { handleOfferCallback, isOfferCallback, sendOffer, startJob } from './bot/jobs';
 import { MENU_TITLE, handleMenuCallback, rootKeyboard, summary } from './bot/menu';
 import { loadSettings } from './captions/settings';
@@ -24,7 +25,9 @@ const help = (env: Env) =>
     '',
     `Uploads must be under ${TELEGRAM_DOWNLOAD_LIMIT / 1024 / 1024} MB, which is a Telegram limit on what bots may download. Videos from a link must be under ${Math.round(maxSourceBytes(env) / 1024 / 1024)} MB, so the captioned result still fits back into Telegram.`,
     '',
-    'Send /settings to change the caption style, font, size, colour or position.',
+    'Every finished video comes with an ✏️ Edit button: change the style, position, size or line length for that one video and tap ♻️ Apply & re-burn. It only re-renders, so it skips the transcription and costs a fraction of the first run.',
+    '',
+    'Send /settings to change the defaults every new video starts from.',
   ].join('\n');
 
 export default {
@@ -94,6 +97,12 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
         query.data,
         Boolean(origin.photo),
       );
+      return;
+    }
+
+    // Restyling one delivered video, as opposed to the chat-wide defaults below.
+    if (isEditCallback(query.data)) {
+      await handleEditCallback(env, origin.chat.id, origin.message_id, query.id, query.data);
       return;
     }
 

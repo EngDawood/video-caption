@@ -7,7 +7,7 @@
  * getByName(jobId), so every request for a given job lands on this instance and
  * can rely on files left on local disk by the previous call.
  *
- *   POST   /job/video   raw video bytes   -> { duration, width, height, hasAudio }
+ *   POST   /job/video?audio=skip  raw video bytes -> { duration, width, height, hasAudio }
  *   GET    /job/audio?start=&dur=         -> mp3 slice of the extracted audio
  *   PUT    /job/subs    ASS text          -> { ok: true }
  *   POST   /job/burn                      -> burned-in mp4 bytes
@@ -119,7 +119,7 @@ async function resetWorkdir() {
 // --- handlers --------------------------------------------------------------
 
 /** Accept the source video, extract a whisper-friendly audio track, report metadata. */
-async function handleVideo(req, res) {
+async function handleVideo(req, res, url) {
   await resetWorkdir();
   const size = await receiveToFile(req, INPUT);
   if (size === 0) return json(res, 400, { error: 'empty body' });
@@ -128,6 +128,20 @@ async function handleVideo(req, res) {
   const video = (meta.streams || []).find((s) => s.codec_type === 'video');
   const audio = (meta.streams || []).find((s) => s.codec_type === 'audio');
   const duration = Number(meta.format?.duration || video?.duration || 0);
+
+  // A re-burn already has its transcript, so the audio pass would be pure
+  // waste — and an audio-less source that got this far must not be rejected
+  // on a second visit for a track nothing is going to read.
+  if (url.searchParams.get('audio') === 'skip') {
+    return json(res, 200, {
+      bytes: size,
+      duration,
+      width: video ? Number(video.width) : null,
+      height: video ? Number(video.height) : null,
+      hasAudio: Boolean(audio),
+      audioBytes: 0,
+    });
+  }
 
   if (!audio) {
     return json(res, 422, { error: 'no_audio_track', duration, bytes: size });
@@ -240,7 +254,7 @@ const server = http.createServer(async (req, res) => {
       case 'GET /fonts':
         return await handleFonts(res);
       case 'POST /job/video':
-        return await handleVideo(req, res);
+        return await handleVideo(req, res, url);
       case 'GET /job/audio':
         return await handleAudio(res, url);
       case 'PUT /job/subs':
