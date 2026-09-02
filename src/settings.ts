@@ -112,10 +112,10 @@ const key = (chatId: number) => `settings:${chatId}`;
 
 export async function loadSettings(env: Env, chatId: number): Promise<CaptionSettings> {
   const base = defaults(env);
-  if (!env.SETTINGS) return base;
+  if (!env.CAPTION_SETTINGS) return base;
 
   try {
-    const stored = await env.SETTINGS.get<Partial<CaptionSettings>>(key(chatId), 'json');
+    const stored = await env.CAPTION_SETTINGS.get<Partial<CaptionSettings>>(key(chatId), 'json');
     // Merge rather than replace, so a newly added field picks up its default.
     return stored ? { ...base, ...stored } : base;
   } catch (err) {
@@ -125,8 +125,8 @@ export async function loadSettings(env: Env, chatId: number): Promise<CaptionSet
 }
 
 export async function saveSettings(env: Env, chatId: number, settings: CaptionSettings): Promise<void> {
-  if (!env.SETTINGS) throw new Error('SETTINGS KV namespace is not bound');
-  await env.SETTINGS.put(key(chatId), JSON.stringify(settings));
+  if (!env.CAPTION_SETTINGS) throw new Error('CAPTION_SETTINGS KV namespace is not bound');
+  await env.CAPTION_SETTINGS.put(key(chatId), JSON.stringify(settings));
 }
 
 /** Reject anything that is not one of the offered options. */

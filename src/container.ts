@@ -9,10 +9,11 @@ export class FfmpegContainer extends Container<Env> {
   defaultPort = 8080;
   requiredPorts = [8080];
 
-  // Burning a few minutes of video takes a while and the Workflow may pause
-  // between steps; keep the instance warm rather than paying a cold start and
-  // losing the job directory mid-pipeline.
-  sleepAfter = '10m';
+  // Safety net only. The workflow calls stop() when a job ends, so this just
+  // bounds the damage if a run dies before its cleanup step. Keep it short:
+  // an awake container bills for its provisioned memory and disk the whole
+  // time, so idle minutes cost the same as working ones.
+  sleepAfter = '2m';
 
   // Everything it needs is handed to it over the binding — no egress required.
   enableInternet = false;

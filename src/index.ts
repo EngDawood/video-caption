@@ -2,6 +2,7 @@ import { MENU_TITLE, handleMenuCallback, rootKeyboard, summary } from './menu';
 import { loadSettings } from './settings';
 import { extractVideo, telegram, type TgUpdate } from './telegram';
 import type { Env } from './types';
+import { usageReport } from './usage';
 
 export { FfmpegContainer } from './container';
 export { CaptionWorkflow } from './workflow';
@@ -57,12 +58,26 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
+/**
+ * Whether this chat may use the bot at all.
+ *
+ * Fails OPEN when ADMIN_CHAT_ID is unset, so a fresh deploy is not silently
+ * dead — set the secret to lock the bot to yourself.
+ */
+function isOwner(env: Env, chatId: number): boolean {
+  if (!env.ADMIN_CHAT_ID) return true;
+  return env.ADMIN_CHAT_ID.split(',')
+    .map((id) => id.trim())
+    .includes(String(chatId));
+}
+
 async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
   // Button presses in the /settings menu arrive as callback queries.
   if (update.callback_query) {
     const query = update.callback_query;
     const origin = query.message;
     if (!origin || !query.data) return;
+    if (!isOwner(env, origin.chat.id)) return;
     await handleMenuCallback(env, origin.chat.id, origin.message_id, query.id, query.data);
     return;
   }
@@ -73,13 +88,22 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
   const tg = telegram(env.TELEGRAM_BOT_TOKEN);
   const chatId = message.chat.id;
 
+  // Transcription, translation and ffmpeg time all cost money, so a stranger
+  // finding the bot must not be able to spend it.
+  if (!isOwner(env, chatId)) {
+    await tg.sendMessage(chatId, '⛔ This bot is private.', message.message_id).catch(() => {});
+    return;
+  }
+
   try {
     const video = extractVideo(message);
 
     if (!video) {
       const command = message.text?.trim().split(/[\s@]/)[0];
 
-      if (command === '/settings') {
+      if (command === '/usage') {
+        await tg.sendMessage(chatId, await usageReport(env), message.message_id);
+      } else if (command === '/settings') {
         const settings = await loadSettings(env, chatId);
         await tg.sendMessage(chatId, MENU_TITLE, message.message_id, rootKeyboard(settings));
       } else if (command === '/style') {

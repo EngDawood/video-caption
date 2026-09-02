@@ -24,11 +24,13 @@
 		}
 	],
 	// Per-chat caption settings from the bot's /settings menu.
-	// Create with: npx wrangler kv namespace create SETTINGS
+	// Create with: npx wrangler kv namespace create CAPTION_SETTINGS
 	"kv_namespaces": [
+		
 		{
-			"binding": "SETTINGS",
-			"id": "<run: npx wrangler kv namespace create SETTINGS>"
+			"binding": "CAPTION_SETTINGS",
+			"id": "19ef1a58c9cc47e9a173c4c37fca8095",
+			"remote": true
 		}
 	],
 	// Dockerfile lives at the project root so the build context can see ./public.
@@ -86,5 +88,7 @@
 		// ~42 chars is the broadcast norm — lower for punchier one-line cues.
 		// Words are never broken, so a single longer word overflows intact.
 		"MAX_CAPTION_CHARS": "42"
+		// ADMIN_CHAT_ID is deliberately NOT a var — it is set as a secret so it
+		// stays out of git. Declaring it here too would collide with the secret.
 	}
 }

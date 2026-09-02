@@ -5,7 +5,7 @@ export interface Env {
   AI: Ai;
   MEDIA: R2Bucket;
   /** Per-chat caption settings. Without it the deployed defaults are used. */
-  SETTINGS: KVNamespace;
+  CAPTION_SETTINGS: KVNamespace;
   FFMPEG: DurableObjectNamespace<FfmpegContainer>;
   CAPTION_WORKFLOW: Workflow<CaptionJob>;
 
@@ -31,6 +31,14 @@ export interface Env {
   /** Only the one matching STT_PROVIDER is needed. */
   GROQ_API_KEY?: string;
   MISTRAL_API_KEY?: string;
+  /**
+   * Telegram chat id allowed to run /usage. Unset disables the command —
+   * it fails closed so billing figures never leak to other users.
+   */
+  ADMIN_CHAT_ID?: string;
+  /** For /usage. Needs Account Analytics: Read — nothing more. */
+  CLOUDFLARE_API_TOKEN?: string;
+  CLOUDFLARE_ACCOUNT_ID?: string;
 }
 
 /** A single subtitle line: seconds from the start of the video. */

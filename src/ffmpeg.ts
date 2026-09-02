@@ -52,8 +52,17 @@ export function ffmpegFor(env: Env, jobId: string) {
       return (await unwrap(res, 'burn')).arrayBuffer();
     },
 
+    /**
+     * Clear the job directory and stop the instance.
+     *
+     * Stopping matters for cost: a container bills for provisioned memory and
+     * disk the whole time it is awake, and it stays awake for `sleepAfter`
+     * after the last request. Ending it here means a job is billed for the work
+     * it did rather than the work plus the idle timer.
+     */
     async cleanup(): Promise<void> {
       await stub.fetch(`${BASE}/job`, { method: 'DELETE' }).catch(() => {});
+      await stub.stop().catch(() => {});
     },
   };
 }
