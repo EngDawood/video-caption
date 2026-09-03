@@ -36,3 +36,15 @@ const body = await res.json();
 console.log(JSON.stringify(body, null, 2));
 if (!body.ok) process.exit(1);
 console.log(`\nwebhook set to ${url}`);
+
+// The ☰ command menu lives in src/index.ts (COMMANDS), so it is published by
+// the Worker rather than restated here. Same secret guards the endpoint.
+const commandsUrl = `${base.replace(/\/$/, '')}/telegram/commands?secret=${encodeURIComponent(secret)}`;
+const commands = await fetch(commandsUrl, { method: 'POST' });
+const commandsBody = await commands.json().catch(() => ({ ok: false, error: `HTTP ${commands.status}` }));
+
+if (!commandsBody.ok) {
+  console.error(`\ncommand menu NOT published: ${JSON.stringify(commandsBody)}`);
+  process.exit(1);
+}
+console.log(`command menu published for scopes: ${Object.keys(commandsBody.scopes).join(', ')}`);

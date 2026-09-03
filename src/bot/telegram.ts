@@ -47,6 +47,16 @@ export interface TgUpdate {
 /** One row of inline-keyboard buttons. */
 export type InlineKeyboard = Array<Array<{ text: string; callback_data: string }>>;
 
+/** One entry in the ☰ command menu Telegram shows beside the input box. */
+export interface BotCommand {
+  /** Lowercase, 1–32 chars of a-z, 0-9 and _ — no leading slash. */
+  command: string;
+  description: string;
+}
+
+/** Who a published command list applies to. */
+export type CommandScope = { type: 'default' } | { type: 'chat'; chat_id: number };
+
 export function telegram(token: string) {
   return {
     sendMessage(chatId: number, text: string, replyTo?: number, keyboard?: InlineKeyboard) {
@@ -96,6 +106,19 @@ export function telegram(token: string) {
         caption,
         ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
       }).catch(() => null);
+    },
+
+    /**
+     * Publish the ☰ command menu. The list is replaced wholesale for the scope
+     * it is sent with, and a chat scope *hides* the default list from that chat
+     * rather than adding to it — so a chat-scoped list must repeat every command
+     * that chat should still see.
+     */
+    setMyCommands(commands: BotCommand[], scope?: CommandScope) {
+      return call<boolean>(token, 'setMyCommands', {
+        commands,
+        ...(scope ? { scope } : {}),
+      });
     },
 
     /** Every callback_query must be answered or the button spins forever. */
