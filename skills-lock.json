@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "ffmpeg": {
+      "source": "n0an/ffmpeg-skill",
+      "sourceType": "github",
+      "computedHash": "c1df73aff32efeae17f2b40328a6156b1fb718a25a92c1f935a9fbf9d3ecf21f"
+    }
+  }
+}
