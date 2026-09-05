@@ -26,14 +26,14 @@ const help = (env: Env) =>
   [
     'Send me a video — or a link to one on TikTok, Instagram, YouTube, X, Facebook or Threads — and I will:',
     '1. pull the speech out of it,',
-    '2. translate it to Arabic,',
-    '3. burn the Arabic captions into the video and send it back.',
+    '2. translate it,',
+    '3. burn the captions into the video and send it back.',
     '',
     'A link is previewed first — nothing is transcribed until you tap ✅ Caption it, and a running job can be stopped with ✖️ Stop on its status line.',
     '',
     `Uploads must be under ${TELEGRAM_DOWNLOAD_LIMIT / 1024 / 1024} MB, which is a Telegram limit on what bots may download. Videos from a link must be under ${Math.round(maxSourceBytes(env) / 1024 / 1024)} MB, so the captioned result still fits back into Telegram.`,
     '',
-    'Every finished video comes with an ✏️ Edit button: change the style, position, size or line length for that one video and tap ♻️ Apply & re-burn. It only re-renders, so it skips the transcription and costs a fraction of the first run.',
+    'Every finished video comes with an ✏️ Edit button: change anything — style, size, position, line length, language, or which transcriber and translator to use — for that one video, then tap ♻️ Apply. It redoes only what your change actually needs, so a style tweak skips straight to re-rendering.',
     '',
     'Send /settings to change the defaults every new video starts from, or /info for what is set up right now.',
   ].join('\n');
