@@ -62,12 +62,21 @@ export function fieldKeyboard(
   settings: CaptionSettings,
   scope: MenuScope = chatScope,
 ): InlineKeyboard {
-  const rows: InlineKeyboard = MENUS[field].options.map((option) => [
-    {
-      text: `${settings[field] === option.value ? '✅' : '▫️'} ${option.label}`,
-      callback_data: scope.pick(field, option.value),
-    },
-  ]);
+  const menu = MENUS[field];
+  // A menu can show its options in an order of its own: the stored order is
+  // append-only because encodeSettings indexes it, which is not always the
+  // order a person reads.
+  const ordered = menu.layout
+    ? menu.layout.flatMap((value) => menu.options.filter((o) => o.value === value))
+    : menu.options;
+  const buttons = ordered.map((option) => ({
+    text: `${settings[field] === option.value ? '✅' : '▫️'} ${option.label}`,
+    callback_data: scope.pick(field, option.value),
+  }));
+
+  const columns = menu.columns ?? 1;
+  const rows: InlineKeyboard = [];
+  for (let i = 0; i < buttons.length; i += columns) rows.push(buttons.slice(i, i + columns));
   rows.push([{ text: '⬅️ Back', callback_data: scope.open('root') }]);
   return rows;
 }

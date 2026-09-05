@@ -1,5 +1,6 @@
 import {
   BACKGROUNDS,
+  POSITIONS,
   TEXT_COLORS,
   type BackgroundId,
   type CaptionPosition,
@@ -139,6 +140,13 @@ interface Menu {
   label: string;
   icon: string;
   options: MenuOption[];
+  /** Buttons per keyboard row. One per row when unset. */
+  columns?: number;
+  /**
+   * Values in the order the keyboard shows them, for a field whose stored
+   * option order is pinned by the settings code and reads badly as a menu.
+   */
+  layout?: string[];
 }
 
 /** Drives both the menu buttons and the validation of incoming callbacks. */
@@ -181,10 +189,23 @@ export const MENUS: Record<SettingsField, Menu> = {
   position: {
     label: 'Position',
     icon: '📍',
-    options: [
-      { value: 'bottom', label: 'Bottom' },
-      { value: 'center', label: 'Centre' },
-      { value: 'top', label: 'Top' },
+    options: Object.entries(POSITIONS).map(([value, p]) => ({ value, label: p.label })),
+    // Laid out as the nine-cell grid it is, with the two raised variants
+    // under it. The options themselves stay in POSITIONS order, because that
+    // index is what rides on the buttons.
+    columns: 3,
+    layout: [
+      'topLeft',
+      'top',
+      'topRight',
+      'middleLeft',
+      'center',
+      'middleRight',
+      'bottomLeft',
+      'bottom',
+      'bottomRight',
+      'upperThird',
+      'lowerThird',
     ],
   },
   chars: {

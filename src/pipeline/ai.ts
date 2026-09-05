@@ -95,7 +95,10 @@ export function refitSegments(segments: Segment[], maxChars: number): Segment[] 
   const limits: CaptionLimits = { maxChars: Math.max(12, maxChars || 42) };
   const merged: Segment[] = [];
 
-  for (const segment of segments) {
+  for (const raw of segments) {
+    // Also the backstop for cues already sitting in R2 from before the line
+    // above existed, and for text a user has pasted back by hand.
+    const segment = { ...raw, text: raw.text.replace(/\s+/g, ' ').trim() };
     const previous = merged[merged.length - 1];
     const joined = previous ? `${previous.text} ${segment.text}` : '';
 
@@ -440,7 +443,10 @@ export async function translateSegments(
   // the same text to a new limit.
   return mapLimit(groupForTranslation(segments), 6, async (segment) => {
     const text = await translateText(env, segment.text, source, target, model);
-    return { ...segment, text };
+    // Whitespace-normalised the way `clean` does it for the transcript: a model
+    // that pads or doubles a space would otherwise have it burned in, because a
+    // cue short enough to skip `resegment` never has its words rejoined.
+    return { ...segment, text: text.replace(/\s+/g, ' ').trim() };
   });
 }
 

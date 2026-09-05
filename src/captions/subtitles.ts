@@ -59,7 +59,33 @@ export type BackgroundId = keyof typeof BACKGROUNDS;
 
 export type CaptionPreset = 'clean' | 'hormozi' | 'cinematic' | 'youtube' | 'naskh';
 export type CaptionSize = 'small' | 'medium' | 'large';
-export type CaptionPosition = 'top' | 'center' | 'bottom';
+/**
+ * Where the caption block sits. `align` is the ASS numpad alignment and
+ * `margin` scales the base edge margin, which is how the "third" variants lift
+ * the text clear of the player chrome social apps draw over a video. A margin
+ * only moves the top and bottom rows — libass centres the middle row whatever
+ * MarginV says.
+ *
+ * Append only: `MENUS.position` derives its options from this order, and
+ * `encodeSettings` puts that index on the buttons. Reorder it and a card
+ * minted by the previous deploy moves someone's captions somewhere else.
+ * The keyboard reads in grid order instead — see `layout` in settings.ts.
+ */
+export const POSITIONS = {
+  bottom: { label: 'Bottom', align: 2, margin: 1 },
+  center: { label: 'Centre', align: 5, margin: 1 },
+  top: { label: 'Top', align: 8, margin: 1 },
+  bottomLeft: { label: 'Bottom left', align: 1, margin: 1 },
+  bottomRight: { label: 'Bottom right', align: 3, margin: 1 },
+  middleLeft: { label: 'Middle left', align: 4, margin: 1 },
+  middleRight: { label: 'Middle right', align: 6, margin: 1 },
+  topLeft: { label: 'Top left', align: 7, margin: 1 },
+  topRight: { label: 'Top right', align: 9, margin: 1 },
+  lowerThird: { label: 'Lower third', align: 2, margin: 4 },
+  upperThird: { label: 'Upper third', align: 8, margin: 4 },
+} as const;
+
+export type CaptionPosition = keyof typeof POSITIONS;
 
 type OutlineWeight = 'none' | 'thin' | 'med' | 'heavy';
 
@@ -134,9 +160,6 @@ const PRESETS: Record<CaptionPreset, PresetStyle> = {
   },
 };
 
-/** ASS numpad alignment. */
-const ALIGNMENT: Record<CaptionPosition, number> = { bottom: 2, center: 5, top: 8 };
-
 const SIZE_SCALE: Record<CaptionSize, number> = { small: 0.7, medium: 1, large: 1.5 };
 
 /** Outline thickness as a fraction of the font size. */
@@ -210,7 +233,8 @@ export function buildAss(segments: Segment[], opts: AssOptions): string {
 
   const outline = round2(fontSize * OUTLINE_RATIO[style.outline]);
   const shadow = round2(fontSize * 0.035 * style.shadow);
-  const marginV = Math.round(height * 0.045);
+  const place = POSITIONS[position] ?? POSITIONS.bottom;
+  const marginV = Math.round(height * 0.045 * place.margin);
   const marginH = Math.round(width * 0.07);
   const bold = style.bold && opts.allowBold ? -1 : 0;
 
@@ -236,7 +260,7 @@ export function buildAss(segments: Segment[], opts: AssOptions): string {
       `${bold},0,0,0`,
       '100,100,0,0',
       `${style.borderStyle},${outline},${shadow}`,
-      `${ALIGNMENT[position]},${marginH},${marginH},${marginV}`,
+      `${place.align},${marginH},${marginH},${marginV}`,
       '1', // Encoding 1 = Unicode; set explicitly so legacy fonts skip ANSI mode.
     ].join(','),
     '',

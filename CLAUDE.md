@@ -75,7 +75,12 @@ the change, so a font change costs one encode and a translator change costs no t
   (`src/bot/edit.ts`) writes corrections straight into the stored cues and re-burns with a plain
   `restyle` — there is no fifth mode, because `restyle` already burns whatever that object holds.
   `retranslate` and `retranscribe` rewrite it from the transcript, which is why the confirmation
-  says so before offering that button.
+  says so before offering that button. Deleting a cue drops its transcript run too, so a
+  re-translate cannot resurrect a line the user removed.
+- **Translated text is whitespace-normalised where it is produced, not at the burn.** `clean` only
+  ever ran on STT output, so a translator that doubled a space had it burned in — a cue short
+  enough to skip `resegment` never has its words rejoined. `translateSegments` normalises now, and
+  `refitSegments` repeats it as the backstop for cues already stored in R2.
 - **A correction is addressed by its timestamp, not its index.** The cue list is posted as `<pre>`
   blocks so Telegram gives each one a copy button, and a pasted-back block is matched on start
   time within 0.6 s. `BLOCK` in `edit.ts` is also the predicate deciding whether a plain message

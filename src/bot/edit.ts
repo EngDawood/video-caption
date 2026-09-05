@@ -131,6 +131,24 @@ const markOf = (line: string): 'source' | 'target' | null =>
 // most emoji keyboards emit the variation selector, the bot's own text does not.
 const unmark = (line: string) => line.replace(/^(?:🗣|💬)️?\s*/u, '').trim();
 
+/**
+ * One space between words, none at the ends.
+ *
+ * Pasted text arrives with whatever spacing the copy picked up, and doubled
+ * spaces in a cue short enough to skip `resegment` are burned in as they are.
+ */
+const tidy = (text: string) => text.replace(/\s+/g, ' ').trim();
+
+/**
+ * What a block's text is replaced with to drop the line entirely.
+ *
+ * Deleting is the one gesture here that destroys text rather than rewording it,
+ * so it has to be deliberate: an emptied block means nothing, and only one of
+ * these stands for "remove this". The words are there because 🗑 costs a trip
+ * through an emoji keyboard on a phone.
+ */
+const REMOVE_TOKENS = new Set(['🗑', '🗑️', '-', '–', '—', 'delete', 'remove', 'حذف']);
+
 /** One pasted-back block: whichever of the two lines the user kept. */
 interface Correction {
   start: number;
@@ -138,6 +156,8 @@ interface Correction {
   source?: string;
   /** A corrected caption, when the 💬 line was included — or left unlabelled. */
   target?: string;
+  /** The caption was replaced with a delete token: drop the line. */
+  remove?: boolean;
 }
 
 /**
@@ -193,7 +213,20 @@ export function parseCorrections(text: string): Correction[] {
     current[field] = current[field] ? `${current[field]} ${line}` : line;
   }
 
-  return out.filter((c) => c.source !== undefined || c.target !== undefined);
+  // Read after the block is whole, so a delete token is recognised wherever it
+  // was put — labelled, unlabelled, or trailing on the timestamp line.
+  for (const correction of out) {
+    if (correction.source !== undefined) correction.source = tidy(correction.source);
+    if (correction.target === undefined) continue;
+
+    correction.target = tidy(correction.target);
+    if (REMOVE_TOKENS.has(correction.target.toLowerCase())) {
+      correction.remove = true;
+      delete correction.target;
+    }
+  }
+
+  return out.filter((c) => c.source !== undefined || c.target !== undefined || c.remove === true);
 }
 
 /**
@@ -286,6 +319,8 @@ const FIX_HELP = [
   `${SOURCE_MARK} what was said · ${TARGET_MARK} what gets burned in`,
   '',
   'Tap a block to copy it, fix the wording, and send it back. Keep the timestamps as they are — that is how I find the line to replace. Several blocks in one message is fine.',
+  '',
+  'To drop a line entirely, send its block with 🗑 — or just a dash — in place of the text.',
   '',
   'Then tap ♻️ Burn the fixes.',
 ].join('\n');
@@ -580,6 +615,10 @@ export async function handleTextCorrection(
 
   const source = stored.source ?? [];
   const patched: Segment[] = [];
+  // Held as cue objects, not indices: every removal shifts the ones after it,
+  // and the corrections in one message are all addressed against the list as
+  // the user was shown it.
+  const doomed = new Set<Segment>();
   const missed: string[] = [];
   let transcriptChanged = false;
 
@@ -591,6 +630,13 @@ export async function handleTextCorrection(
     }
 
     const cue = stored.segments[index];
+
+    if (correction.remove) {
+      doomed.add(cue);
+      patched.push(cue);
+      continue;
+    }
+
     if (correction.target) cue.text = correction.target;
     // Only ever amend a transcript that exists. Seeding one from a single
     // hand-typed line would leave a re-translate with one line to work from,
@@ -607,6 +653,23 @@ export async function handleTextCorrection(
     return true;
   }
 
+  // A video with no cues at all is not a correction anyone means to make, and
+  // it is the one shape of this that the burn has never been run against.
+  if (doomed.size > 0 && doomed.size >= stored.segments.length) {
+    await say('⚠️ That would delete every line. Leave at least one, or close the card to drop the video.');
+    return true;
+  }
+
+  if (doomed.size > 0) {
+    // The transcript goes with it, so that a later re-translate cannot bring a
+    // deleted line back.
+    for (const cue of doomed) {
+      const run = sourceRun(source, cue);
+      if (run.length > 0) source.splice(source.indexOf(run[0]), run.length);
+    }
+    stored.segments = stored.segments.filter((cue) => !doomed.has(cue));
+  }
+
   if (source.length > 0) stored.source = source;
   await saveCues(env, session.assetJobId, stored);
 
@@ -621,22 +684,29 @@ export async function handleTextCorrection(
   ];
 
   const shown = patched.map((cue) =>
-    blockFor(
-      cue,
-      sourceRun(source, cue)
-        .map((s) => s.text)
-        .join(' '),
-    ),
+    doomed.has(cue)
+      ? `🗑 <s>${escapeHtml(`${clock(cue.start)} ${cue.text}`)}</s>`
+      : blockFor(
+          cue,
+          sourceRun(source, cue)
+            .map((s) => s.text)
+            .join(' '),
+        ),
   );
   const trouble = missed.length > 0 ? `\n⚠️ Nothing starts at ${missed.join(', ')}.` : '';
   const note = transcriptChanged
     ? '\nTranslating again replaces every caption, including ones you fixed by hand.'
     : '';
 
-  await say(
-    `✍️ Updated ${patched.length} line${patched.length === 1 ? '' : 's'}:\n\n${shown.join('\n')}${trouble}${note}`,
-    keyboard,
-  );
+  const kept = patched.length - doomed.size;
+  const headline = [
+    kept > 0 ? `updated ${kept} line${kept === 1 ? '' : 's'}` : '',
+    doomed.size > 0 ? `deleted ${doomed.size}` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+
+  await say(`✍️ ${headline[0].toUpperCase()}${headline.slice(1)}:\n\n${shown.join('\n')}${trouble}${note}`, keyboard);
   return true;
 }
 
