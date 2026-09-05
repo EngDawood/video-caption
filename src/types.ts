@@ -116,3 +116,22 @@ export interface VideoMeta {
   hasAudio: boolean;
   audioBytes: number;
 }
+
+/**
+ * What a finished run leaves in R2 for a later re-run to pick up.
+ *
+ * Shared rather than private to the workflow because the ✍️ Fix text flow
+ * rewrites `segments` in place — a hand-corrected line is burned by feeding a
+ * plain `restyle` the cues it would have loaded anyway.
+ */
+export interface StoredCues {
+  meta: VideoMeta;
+  /** Translated but not yet fitted to a line length — see `refitSegments`. */
+  segments: Segment[];
+  /**
+   * The transcript before translation. This is what makes a re-translate cheap:
+   * a different translator or target language costs one translation pass, with
+   * no container and no second round of STT.
+   */
+  source?: Segment[];
+}

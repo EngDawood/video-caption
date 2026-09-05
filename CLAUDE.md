@@ -71,6 +71,15 @@ the change, so a font change costs one encode and a translator change costs no t
   which re-run depth it needs.
 - **`abandon(..., purge)` must be false for re-runs.** Purging on a failed re-transcribe would
   delete the assets behind a video the user already has.
+- **Hand-corrected text lives in `segments.json`, so a re-translate discards it.** ✍️ Fix text
+  (`src/bot/edit.ts`) writes corrections straight into the stored cues and re-burns with a plain
+  `restyle` — there is no fifth mode, because `restyle` already burns whatever that object holds.
+  `retranslate` and `retranscribe` rewrite it from the transcript, which is why the confirmation
+  says so before offering that button.
+- **A correction is addressed by its timestamp, not its index.** The cue list is posted as `<pre>`
+  blocks so Telegram gives each one a copy button, and a pasted-back block is matched on start
+  time within 0.6 s. `BLOCK` in `edit.ts` is also the predicate deciding whether a plain message
+  is a correction at all, so loosening it makes ordinary chat start hitting KV.
 
 ## Environment
 

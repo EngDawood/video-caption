@@ -16,26 +16,13 @@ import { sendEditCard } from '../bot/edit';
 import { shortLabel } from '../bot/menu';
 import { cancelKey, cancelKeyboard } from '../bot/jobs';
 import { telegram } from '../bot/telegram';
-import type { CaptionJob, Env, Segment, VideoMeta } from '../types';
+import type { CaptionJob, Env, Segment, StoredCues, VideoMeta } from '../types';
 
 const RETRY: WorkflowStepConfig = {
   retries: { limit: 2, delay: '5 seconds', backoff: 'exponential' },
 };
 
 const longStep = (timeout: WorkflowTimeoutDuration): WorkflowStepConfig => ({ ...RETRY, timeout });
-
-/** What a finished run leaves in R2 for a later re-run to pick up. */
-interface StoredCues {
-  meta: VideoMeta;
-  /** Translated but not yet fitted to a line length — see `refitSegments`. */
-  segments: Segment[];
-  /**
-   * The transcript before translation. This is what makes a re-translate cheap:
-   * a different translator or target language costs one translation pass, with
-   * no container and no second round of STT.
-   */
-  source?: Segment[];
-}
 
 const EXPIRED = 'that video is no longer stored — send it again to caption it fresh';
 

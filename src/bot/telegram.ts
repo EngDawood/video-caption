@@ -44,6 +44,10 @@ export interface TgUpdate {
   callback_query?: TgCallbackQuery;
 }
 
+/** The three characters Telegram's HTML parse mode reserves. */
+export const escapeHtml = (text: string) =>
+  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 /** One row of inline-keyboard buttons. */
 export type InlineKeyboard = Array<Array<{ text: string; callback_data: string }>>;
 
@@ -59,10 +63,22 @@ export type CommandScope = { type: 'default' } | { type: 'chat'; chat_id: number
 
 export function telegram(token: string) {
   return {
-    sendMessage(chatId: number, text: string, replyTo?: number, keyboard?: InlineKeyboard) {
+    /**
+     * `parseMode: 'HTML'` is for the ✍️ cue list, whose blocks go inside <pre>
+     * so Telegram renders them monospaced with a tap-to-copy button. Anything
+     * interpolated into such a message has to go through `escapeHtml` first.
+     */
+    sendMessage(
+      chatId: number,
+      text: string,
+      replyTo?: number,
+      keyboard?: InlineKeyboard,
+      parseMode?: 'HTML',
+    ) {
       return call<TgMessage>(token, 'sendMessage', {
         chat_id: chatId,
         text,
+        ...(parseMode ? { parse_mode: parseMode } : {}),
         ...(replyTo ? { reply_to_message_id: replyTo, allow_sending_without_reply: true } : {}),
         ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
       });

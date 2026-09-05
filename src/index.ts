@@ -1,6 +1,6 @@
 import { NonRetryableError } from 'cloudflare:workflows';
 import { extractSourceUrl, maxSourceBytes } from './media/download';
-import { handleEditCallback, isEditCallback } from './bot/edit';
+import { handleEditCallback, handleTextCorrection, isEditCallback } from './bot/edit';
 import {
   handleCancelCallback,
   handleOfferCallback,
@@ -34,6 +34,8 @@ const help = (env: Env) =>
     `Uploads must be under ${TELEGRAM_DOWNLOAD_LIMIT / 1024 / 1024} MB, which is a Telegram limit on what bots may download. Videos from a link must be under ${Math.round(maxSourceBytes(env) / 1024 / 1024)} MB, so the captioned result still fits back into Telegram.`,
     '',
     'Every finished video comes with an ✏️ Edit button: change anything — style, size, position, line length, language, or which transcriber and translator to use — for that one video, then tap ♻️ Apply. It redoes only what your change actually needs, so a style tweak skips straight to re-rendering.',
+    '',
+    'Next to it, ✍️ Fix text lists every line with its timestamps — what was said and what was burned in. Tap a block to copy it, correct the wording and send it back; the timestamps are how I find the line to replace.',
     '',
     'Send /settings to change the defaults every new video starts from, or /info for what is set up right now.',
   ].join('\n');
@@ -240,6 +242,10 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
         await tg.sendMessage(chatId, info(env, settings, commandsFor(env, chatId)), message.message_id);
       } else if (command === '/start' || command === '/help') {
         await tg.sendMessage(chatId, help(env), message.message_id);
+      } else if (await handleTextCorrection(env, chatId, message.message_id, message.text ?? '')) {
+        // A block copied out of the ✍️ list and sent back with the wording
+        // fixed. It costs no KV read unless the text actually carries
+        // timestamps, so ordinary messages fall straight through.
       } else if (sourceUrl) {
         // A social link: resolve it for a preview, then let the user confirm
         // before any container time or transcription is paid for.

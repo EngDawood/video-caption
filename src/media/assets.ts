@@ -1,4 +1,4 @@
-import type { Env } from '../types';
+import type { Env, StoredCues } from '../types';
 
 /**
  * The R2 objects a job leaves behind.
@@ -14,6 +14,22 @@ export const assetKeys = (jobId: string) => ({
   output: `jobs/${jobId}/output.mp4`,
   segments: `jobs/${jobId}/segments.json`,
 });
+
+/** The cues a finished run stored, or null once they have expired. */
+export async function loadCues(env: Env, jobId: string): Promise<StoredCues | null> {
+  const object = await env.MEDIA.get(assetKeys(jobId).segments);
+  return object ? await object.json<StoredCues>() : null;
+}
+
+/**
+ * Replace the stored cues.
+ *
+ * The ✍️ Fix text flow writes through here, which is what makes a corrected
+ * line survive: the next `restyle` loads exactly this object and burns it.
+ */
+export async function saveCues(env: Env, jobId: string, cues: StoredCues): Promise<void> {
+  await env.MEDIA.put(assetKeys(jobId).segments, JSON.stringify(cues));
+}
 
 /** Drop everything a job stored. Safe to call twice. */
 export async function purgeAssets(env: Env, jobId: string): Promise<void> {
