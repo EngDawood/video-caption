@@ -87,6 +87,18 @@
 		// workers-ai needs no key and is therefore always the last resort.
 		// groq (GROQ_API_KEY) | mistral (MISTRAL_API_KEY) | workers-ai (no key)
 		"STT_PROVIDER": "groq",
+		// Workers AI speech model — used only on the workers-ai leg of that
+		// chain. Groq and Mistral name their own models in src/pipeline/ai.ts.
+		"WHISPER_MODEL": "@cf/openai/whisper-large-v3-turbo",
+		// Default translation model, and the starting point for the 🧠 Translator
+		// row in /settings and on each video's ✏️ Edit card. An instruct LLM
+		// translates a sentence far better than a dedicated MT model does; m2m100
+		// is kept as the cheap, literal option. Use one of the models the menu
+		// offers or it falls back to Llama 3.3 70B:
+		//   @cf/meta/llama-3.3-70b-instruct-fp8-fast  most accurate
+		//   @cf/meta/llama-4-scout-17b-16e-instruct   faster
+		//   @cf/meta/m2m100-1.2b                      literal, cheapest
+		"TRANSLATION_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
 		"CHUNK_SECONDS": "240",
 		"MAX_VIDEO_SECONDS": "900",
 		// Caption pacing. Whisper returns long paragraphs; this splits them.

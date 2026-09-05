@@ -1,7 +1,26 @@
+import { TRANSLATORS, type SttProviderId, type TranslatorId } from '../captions/settings';
 import type { Env, Segment } from '../types';
 
-const WHISPER = '@cf/openai/whisper-large-v3-turbo';
-const TRANSLATOR = '@cf/meta/m2m100-1.2b';
+/** Only the Workers AI leg of the STT chain — Groq and Mistral name their own. */
+const WHISPER_DEFAULT = '@cf/openai/whisper-large-v3-turbo';
+
+const whisperModel = (env: Env): string => env.WHISPER_MODEL || WHISPER_DEFAULT;
+
+/** Language names for the translation prompt; codes fall back to themselves. */
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English',
+  ar: 'Arabic',
+  es: 'Spanish',
+  fr: 'French',
+  hi: 'Hindi',
+  ur: 'Urdu',
+  fa: 'Persian',
+  tr: 'Turkish',
+  ru: 'Russian',
+  pt: 'Portuguese',
+};
+
+const langName = (code: string): string => LANGUAGE_NAMES[code] ?? code;
 
 /** Workers AI wants the audio as base64; chunked so a long clip cannot blow the stack. */
 function toBase64(buffer: ArrayBuffer): string {
@@ -39,15 +58,18 @@ export async function transcribeChunk(
   audio: ArrayBuffer,
   offset: number,
   fallbackDuration: number,
+  sourceLang: string,
+  preferred: SttProviderId,
 ): Promise<Segment[]> {
-  const raw = await transcribe(env, audio);
+  const raw = await transcribe(env, audio, sourceLang, preferred);
 
-  // Whisper hands back whole paragraphs — up to ~30s in one segment. Break
-  // them into caption-sized cues here so the translator also receives
-  // sentence-sized units instead of a wall of text.
-  const segments = resegment(normalize(raw, fallbackDuration), captionLimits(env));
-
-  return segments.map((s) => ({
+  // Left at the provider's own granularity — deliberately NOT split into
+  // caption-sized cues yet. The translator gets whole sentences this way
+  // instead of arbitrary ~42-char fragments, which is what was cutting
+  // sentences in half before translation and mistranslating both halves.
+  // Caption-sizing happens after translation, on the translated text, via
+  // `refitSegments` at burn time.
+  return normalize(raw, fallbackDuration).map((s) => ({
     start: s.start + offset,
     end: s.end + offset,
     text: s.text,
@@ -56,10 +78,6 @@ export async function transcribeChunk(
 
 interface CaptionLimits {
   maxChars: number;
-}
-
-function captionLimits(env: Env): CaptionLimits {
-  return { maxChars: Number(env.MAX_CAPTION_CHARS || 42) };
 }
 
 /** Cues further apart than this are separate thoughts and never merged. */
@@ -159,10 +177,10 @@ export function resegment(segments: Segment[], limits: CaptionLimits): Segment[]
   return out;
 }
 
-async function transcribeWorkersAI(env: Env, audio: ArrayBuffer): Promise<any> {
+async function transcribeWorkersAI(env: Env, audio: ArrayBuffer, sourceLang: string): Promise<any> {
   const input: Record<string, unknown> = { audio: toBase64(audio) };
-  if (env.SOURCE_LANG && env.SOURCE_LANG !== 'auto') input.language = env.SOURCE_LANG;
-  return env.AI.run(WHISPER as any, input as any);
+  if (sourceLang && sourceLang !== 'auto') input.language = sourceLang;
+  return env.AI.run(whisperModel(env) as any, input as any);
 }
 
 /**
@@ -187,7 +205,12 @@ const PROVIDERS = {
   },
 } as const;
 
-async function transcribeExternal(env: Env, audio: ArrayBuffer, id: 'groq' | 'mistral'): Promise<any> {
+async function transcribeExternal(
+  env: Env,
+  audio: ArrayBuffer,
+  id: 'groq' | 'mistral',
+  sourceLang: string,
+): Promise<any> {
   const provider = PROVIDERS[id];
   const apiKey = env[provider.keyVar];
   if (!apiKey) throw new Error(`${id} is in the STT chain but ${provider.keyVar} is not set`);
@@ -197,7 +220,7 @@ async function transcribeExternal(env: Env, audio: ArrayBuffer, id: 'groq' | 'mi
   form.append('model', provider.model);
   form.append('response_format', 'verbose_json');
   form.append(provider.granularityField, 'segment');
-  if (env.SOURCE_LANG && env.SOURCE_LANG !== 'auto') form.append('language', env.SOURCE_LANG);
+  if (sourceLang && sourceLang !== 'auto') form.append('language', sourceLang);
 
   const res = await fetch(provider.endpoint, {
     method: 'POST',
@@ -220,13 +243,11 @@ async function transcribeExternal(env: Env, audio: ArrayBuffer, id: 'groq' | 'mi
  * An external provider with no API key is skipped rather than counted as a
  * failure — nothing is attempted that cannot possibly work.
  */
-type SttProvider = 'groq' | 'mistral' | 'workers-ai';
+const STT_ORDER: readonly SttProviderId[] = ['groq', 'mistral', 'workers-ai'];
 
-const STT_ORDER: readonly SttProvider[] = ['groq', 'mistral', 'workers-ai'];
-
-export function sttChain(env: Env): SttProvider[] {
-  const preferred = STT_ORDER.includes(env.STT_PROVIDER) ? env.STT_PROVIDER : 'groq';
-  return [preferred, ...STT_ORDER.filter((id) => id !== preferred)].filter(
+export function sttChain(env: Env, preferred: SttProviderId): SttProviderId[] {
+  const first = STT_ORDER.includes(preferred) ? preferred : 'groq';
+  return [first, ...STT_ORDER.filter((id) => id !== first)].filter(
     (id) => id === 'workers-ai' || Boolean(env[PROVIDERS[id].keyVar]),
   );
 }
@@ -236,15 +257,20 @@ export function sttChain(env: Env): SttProvider[] {
  * is taken at face value, because a silent chunk is normal (music, a gap) and
  * re-running all three providers on it would cost time and money for nothing.
  */
-async function transcribe(env: Env, audio: ArrayBuffer): Promise<any> {
-  const chain = sttChain(env);
+async function transcribe(
+  env: Env,
+  audio: ArrayBuffer,
+  sourceLang: string,
+  preferred: SttProviderId,
+): Promise<any> {
+  const chain = sttChain(env, preferred);
   let last: unknown;
 
   for (const id of chain) {
     try {
       return id === 'workers-ai'
-        ? await transcribeWorkersAI(env, audio)
-        : await transcribeExternal(env, audio, id);
+        ? await transcribeWorkersAI(env, audio, sourceLang)
+        : await transcribeExternal(env, audio, id, sourceLang);
     } catch (err) {
       last = err;
       console.error(`[ai] ${id} transcription failed, falling back:`, err);
@@ -353,31 +379,88 @@ function clean(segments: Segment[]): Segment[] {
 
 // --- translation -----------------------------------------------------------
 
-export async function translateSegments(env: Env, segments: Segment[]): Promise<Segment[]> {
-  const source = env.SOURCE_LANG && env.SOURCE_LANG !== 'auto' ? env.SOURCE_LANG : 'en';
-  const target = env.TARGET_LANG || 'ar';
+/** Longest run of speech handed to the translator as one unit. */
+const TRANSLATION_UNIT_CHARS = 400;
+/** A pause this long ends a thought, even with no full stop spoken. */
+const TRANSLATION_GAP_SECONDS = 1.2;
 
-  // Deliberately returned unfitted. Arabic renders at a different length than
-  // the source, so these cues still need sizing — but that is done at burn
-  // time with `refitSegments`, because the line length is a per-job setting
-  // and a restyle has to be able to re-fit the same text to a new limit.
-  return mapLimit(segments, 6, async (segment) => {
-    const text = await translateText(env, segment.text, source, target);
+/**
+ * Glue consecutive segments back into whole sentences for the translator.
+ *
+ * Whisper's own segmentation is not reliably sentence-shaped: a talking head
+ * gives long paragraphs, but a cut-heavy video gives a string of fragments,
+ * and some models return no terminal punctuation at all. Translating a
+ * fragment alone is what produced wrong Arabic, so a segment is joined to the
+ * previous one unless there is a reason to believe the thought ended — a
+ * sentence-ending mark, or a real pause.
+ *
+ * Genuinely disconnected speech therefore stays disconnected: a video that is
+ * separate one-line utterances hits the gap rule and is translated line by
+ * line, which is the right unit for it.
+ */
+function groupForTranslation(segments: Segment[]): Segment[] {
+  const units: Segment[] = [];
+
+  for (const segment of segments) {
+    const previous = units[units.length - 1];
+    const continues =
+      previous &&
+      !SENTENCE_END.test(previous.text) &&
+      segment.start - previous.end <= TRANSLATION_GAP_SECONDS &&
+      previous.text.length + segment.text.length + 1 <= TRANSLATION_UNIT_CHARS;
+
+    if (continues) {
+      previous.text = `${previous.text} ${segment.text}`;
+      previous.end = segment.end;
+      continue;
+    }
+
+    units.push({ ...segment });
+  }
+
+  return units;
+}
+
+export async function translateSegments(
+  env: Env,
+  segments: Segment[],
+  sourceLang: string,
+  targetLang: string,
+  translator: TranslatorId,
+): Promise<Segment[]> {
+  const source = sourceLang && sourceLang !== 'auto' ? sourceLang : 'en';
+  const target = targetLang || 'ar';
+  const model = TRANSLATORS[translator] ?? TRANSLATORS.llama70b;
+
+  // Translated a whole sentence at a time, not a caption-sized fragment.
+  // Deliberately returned unfitted: the target language renders at a different
+  // length than the source, so these still need splitting into caption-sized
+  // cues — but that is done at burn time with `refitSegments`, because the
+  // line length is a per-job setting and a restyle has to be able to re-fit
+  // the same text to a new limit.
+  return mapLimit(groupForTranslation(segments), 6, async (segment) => {
+    const text = await translateText(env, segment.text, source, target, model);
     return { ...segment, text };
   });
 }
 
-async function translateText(env: Env, text: string, source: string, target: string): Promise<string> {
+type TranslatorModel = (typeof TRANSLATORS)[TranslatorId];
+
+async function translateText(
+  env: Env,
+  text: string,
+  source: string,
+  target: string,
+  model: TranslatorModel,
+): Promise<string> {
   if (!text.trim()) return text;
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res: any = await env.AI.run(TRANSLATOR as any, {
-        text,
-        source_lang: source,
-        target_lang: target,
-      } as any);
-      const out = String(res?.translated_text ?? '').trim();
+      const out =
+        model.kind === 'chat'
+          ? await promptTranslate(env, model.model, text, source, target)
+          : await mtTranslate(env, model.model, text, source, target);
       if (out) return out;
     } catch (err) {
       if (attempt === 1) console.error('[ai] translation failed, keeping source text:', err);
@@ -385,4 +468,45 @@ async function translateText(env: Env, text: string, source: string, target: str
   }
   // Better to burn the original line than to drop it entirely.
   return text;
+}
+
+/** Chat models: told what to do, and told firmly not to add anything around it. */
+async function promptTranslate(
+  env: Env,
+  model: string,
+  text: string,
+  source: string,
+  target: string,
+): Promise<string> {
+  const res: any = await env.AI.run(model as any, {
+    messages: [
+      {
+        role: 'system',
+        content:
+          `You translate video subtitles from ${langName(source)} to ${langName(target)}. ` +
+          'Reply with ONLY the translation — no quotes, no notes, no explanations, ' +
+          'nothing before or after it. Keep names and numbers as in the source, and ' +
+          'keep the tone and register the speaker used.',
+      },
+      { role: 'user', content: text },
+    ],
+    temperature: 0.2,
+  } as any);
+  return String(res?.response ?? '').trim();
+}
+
+/** m2m100 and friends: a plain MT endpoint, no prompting involved. */
+async function mtTranslate(
+  env: Env,
+  model: string,
+  text: string,
+  source: string,
+  target: string,
+): Promise<string> {
+  const res: any = await env.AI.run(model as any, {
+    text,
+    source_lang: source,
+    target_lang: target,
+  } as any);
+  return String(res?.translated_text ?? '').trim();
 }

@@ -10,9 +10,10 @@ import { refitSegments, transcribeChunk, translateSegments } from './ai';
 import { fetchMedia, maxSourceBytes, resolveVideo } from '../media/download';
 import { assetKeys } from '../media/assets';
 import { ffmpegFor } from '../media/ffmpeg';
-import { FONTS, loadSettings, type CaptionSettings } from '../captions/settings';
+import { FONTS, isRtlLang, loadSettings, type CaptionSettings } from '../captions/settings';
 import { buildAss } from '../captions/subtitles';
 import { sendEditCard } from '../bot/edit';
+import { shortLabel } from '../bot/menu';
 import { cancelKey, cancelKeyboard } from '../bot/jobs';
 import { telegram } from '../bot/telegram';
 import type { CaptionJob, Env, Segment, VideoMeta } from '../types';
@@ -23,11 +24,17 @@ const RETRY: WorkflowStepConfig = {
 
 const longStep = (timeout: WorkflowTimeoutDuration): WorkflowStepConfig => ({ ...RETRY, timeout });
 
-/** What a finished run leaves in R2 for a later re-burn to pick up. */
+/** What a finished run leaves in R2 for a later re-run to pick up. */
 interface StoredCues {
   meta: VideoMeta;
   /** Translated but not yet fitted to a line length — see `refitSegments`. */
   segments: Segment[];
+  /**
+   * The transcript before translation. This is what makes a re-translate cheap:
+   * a different translator or target language costs one translation pass, with
+   * no container and no second round of STT.
+   */
+  source?: Segment[];
 }
 
 const EXPIRED = 'that video is no longer stored — send it again to caption it fresh';
@@ -67,50 +74,52 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
         return event.payload.settings ?? (await loadSettings(env, chatId));
       })) as CaptionSettings;
 
+      // How deep this run goes. Each mode reuses everything the stage above it
+      // already produced, so a re-run only pays for what actually changed.
+      const readsSpeech = mode === 'full' || mode === 'retranscribe';
+      const translates = readsSpeech || mode === 'retranslate';
+
       let meta: VideoMeta;
       let cues: Segment[];
+      /** The pre-translation transcript, carried to `store-cues` at the end. */
+      let transcript: Segment[];
 
-      if (mode === 'restyle') {
-        const stored = (await step.do('load-cues', RETRY, async () => {
-          const object = await env.MEDIA.get(keys.segments);
-          if (!object) throw new NonRetryableError(EXPIRED);
-          return object.json<StoredCues>();
-        })) as StoredCues;
-
-        meta = stored.meta;
-        cues = stored.segments;
-      } else {
+      if (readsSpeech) {
         // 1. Get the source video into R2, so later steps can re-read it without
-        //    hitting the Bot API — or the expiring social link — again.
-        await step.do('fetch-video', RETRY, async () => {
-          if (sourceUrl) {
-            // Resolve and download inside one step: the links the API hands back
-            // are signed and short-lived, so they must not outlive this attempt.
-            const media = await resolveVideo(env, sourceUrl);
-            await say(`⏳ Downloading from ${media.platform}…`);
-            const bytes = await fetchMedia(media, maxSourceBytes(env));
-            await env.MEDIA.put(keys.input, bytes);
-            return { bytes: bytes.byteLength, platform: media.platform };
-          }
+        //    hitting the Bot API — or the expiring social link — again. A
+        //    re-transcribe skips this: the video is already there.
+        if (mode === 'full') {
+          await step.do('fetch-video', RETRY, async () => {
+            if (sourceUrl) {
+              // Resolve and download inside one step: the links the API hands
+              // back are signed and short-lived, so they must not outlive this
+              // attempt.
+              const media = await resolveVideo(env, sourceUrl);
+              await say(`⏳ Downloading from ${media.platform}…`);
+              const bytes = await fetchMedia(media, maxSourceBytes(env));
+              await env.MEDIA.put(keys.input, bytes);
+              return { bytes: bytes.byteLength, platform: media.platform };
+            }
 
-          if (!fileId) throw new NonRetryableError('job has neither a file nor a link');
-          const bytes = await tg.download(fileId);
-          await env.MEDIA.put(keys.input, bytes);
-          return { bytes: bytes.byteLength };
-        });
+            if (!fileId) throw new NonRetryableError('job has neither a file nor a link');
+            const bytes = await tg.download(fileId);
+            await env.MEDIA.put(keys.input, bytes);
+            return { bytes: bytes.byteLength };
+          });
+        }
 
         // 2. Hand it to ffmpeg, which extracts a 16 kHz mono track for the ASR model.
         meta = (await step.do('extract-audio', longStep('5 minutes'), async () => {
           await say('⏳ Extracting audio…');
           const object = await env.MEDIA.get(keys.input);
-          if (!object) throw new Error('input video missing from R2');
+          if (!object) throw new NonRetryableError(EXPIRED);
           return ffmpeg.uploadVideo(await object.arrayBuffer());
         })) as VideoMeta;
 
         const maxSeconds = Number(env.MAX_VIDEO_SECONDS || 900);
         if (meta.duration > maxSeconds) {
           await settle(`⚠️ Video is ${Math.round(meta.duration)}s, limit is ${maxSeconds}s.`);
-          await this.abandon(ffmpeg, assetJobId);
+          await this.abandon(ffmpeg, assetJobId, mode === 'full');
           return;
         }
 
@@ -126,15 +135,19 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
           const segments = (await step.do(`transcribe-${i}`, longStep('5 minutes'), async () => {
             await say(`⏳ Transcribing… (${i + 1}/${chunkCount})`);
             const audio = await this.withVideoLoaded(jobId, keys.input, () => ffmpeg.audioSlice(start, dur));
-            return transcribeChunk(env, audio, start, dur);
+            return transcribeChunk(env, audio, start, dur, settings.sourceLang, settings.stt);
           })) as Segment[];
 
           transcribed.push(...segments);
         }
 
         if (transcribed.length === 0) {
-          await settle('⚠️ No speech found in this video.');
-          await this.abandon(ffmpeg, assetJobId);
+          await settle(
+            mode === 'full'
+              ? '⚠️ No speech found in this video.'
+              : '⚠️ That transcriber found no speech — the video you already have is untouched.',
+          );
+          await this.abandon(ffmpeg, assetJobId, mode === 'full');
           return;
         }
 
@@ -146,16 +159,50 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
           await ffmpeg.cleanup();
         });
 
-        // 4. Translate each cue, then park the result next to the video. Those
-        //    two objects are everything a re-burn needs, and keeping them turns
-        //    a restyle into one encode instead of a second round of STT.
+        transcript = transcribed;
+        // Filled by the translate stage below, which every speech-reading mode
+        // runs — there is no path from here to the burn that skips it.
+        cues = [];
+      } else {
+        const stored = (await step.do('load-cues', RETRY, async () => {
+          const object = await env.MEDIA.get(keys.segments);
+          if (!object) throw new NonRetryableError(EXPIRED);
+          return object.json<StoredCues>();
+        })) as StoredCues;
+
+        meta = stored.meta;
+        cues = stored.segments;
+        transcript = stored.source ?? [];
+
+        // Cues stored before transcripts were kept have nothing to re-translate
+        // from. Burning the text already there beats failing outright, and the
+        // ✏️ Edit card is still on the message to try something else.
+        if (mode === 'retranslate' && transcript.length === 0) {
+          await say('⚠️ No stored transcript for this video — re-burning the text it already has.');
+        }
+      }
+
+      // 4. Translate a sentence at a time, then park both the transcript and
+      //    the translation next to the video. Those objects are what let a
+      //    later re-run restart from the middle instead of the top.
+      if (translates && transcript.length > 0) {
         const translated = (await step.do('translate', longStep('5 minutes'), async () => {
-          await say(`⏳ Translating ${transcribed.length} lines to Arabic…`);
-          return translateSegments(env, transcribed);
+          const language = shortLabel('targetLang', settings.targetLang);
+          await say(`⏳ Translating ${transcript.length} lines to ${language}…`);
+          return translateSegments(
+            env,
+            transcript,
+            settings.sourceLang,
+            settings.targetLang,
+            settings.translator,
+          );
         })) as Segment[];
 
         await step.do('store-cues', RETRY, async () => {
-          await env.MEDIA.put(keys.segments, JSON.stringify({ meta, segments: translated } satisfies StoredCues));
+          await env.MEDIA.put(
+            keys.segments,
+            JSON.stringify({ meta, segments: translated, source: transcript } satisfies StoredCues),
+          );
         });
 
         cues = translated;
@@ -181,7 +228,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
           font: font.family,
           width: meta.width ?? 1280,
           height: meta.height ?? 720,
-          rtl: (env.TARGET_LANG || 'ar') === 'ar',
+          rtl: isRtlLang(settings.targetLang),
           preset: settings.preset,
           size: settings.size,
           position: settings.position,
@@ -235,13 +282,6 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
   }
 
   /**
-   * Give up on a job that produced nothing worth sending.
-   *
-   * Stopping the container matters: it bills for provisioned memory the whole
-   * time it is awake, so walking away without this leaves the idle timer to
-   * charge for work that already ended.
-   */
-  /**
    * Retire the ✖️ Stop button's token once the job is past stopping, so a late
    * tap says "already finished" instead of terminating nothing and deleting
    * files the ✏️ Edit card still needs.
@@ -251,8 +291,25 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
     await this.env.CAPTION_SETTINGS?.delete(cancelKey(token)).catch(() => {});
   }
 
-  private async abandon(ffmpeg: ReturnType<typeof ffmpegFor>, assetJobId: string): Promise<void> {
+  /**
+   * Give up on a run that produced nothing worth sending.
+   *
+   * Stopping the container matters: it bills for provisioned memory the whole
+   * time it is awake, so walking away without this leaves the idle timer to
+   * charge for work that already ended.
+   *
+   * `purge` is false for every re-run. A first attempt that finds no speech has
+   * nothing worth keeping, but a re-transcribe that comes back empty must not
+   * take the delivered video's files with it — the user still has a good result
+   * on the message above, and deleting its assets would strand the ✏️ Edit card.
+   */
+  private async abandon(
+    ffmpeg: ReturnType<typeof ffmpegFor>,
+    assetJobId: string,
+    purge: boolean,
+  ): Promise<void> {
     await ffmpeg.cleanup();
+    if (!purge) return;
     const keys = assetKeys(assetJobId);
     await this.env.MEDIA.delete([keys.input, keys.output, keys.segments]).catch(() => {});
   }

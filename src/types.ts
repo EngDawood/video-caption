@@ -22,6 +22,10 @@ export interface Env {
   TARGET_LANG: string;
   /** The provider tried FIRST; the others follow as fallbacks. */
   STT_PROVIDER: 'workers-ai' | 'groq' | 'mistral';
+  /** Workers AI speech model, used only on the workers-ai leg of the STT chain. */
+  WHISPER_MODEL?: string;
+  /** Default translation model. Must be one the 🧠 Translator menu offers. */
+  TRANSLATION_MODEL?: string;
   CHUNK_SECONDS: string;
   MAX_VIDEO_SECONDS: string;
   /** Longest caption line before it is split into another cue. */
@@ -62,12 +66,18 @@ export interface Segment {
 /**
  * A caption job.
  *
- * `full` fetches, transcribes, translates and burns. `restyle` reuses the text
- * and the source video an earlier run left in R2 and only burns again, so it
- * costs one encode instead of a second round of transcription and translation.
+ * Four depths, each reusing what the run before it left in R2:
+ *   full          fetch, transcribe, translate, burn
+ *   retranscribe  the video is already stored — transcribe it again, translate, burn
+ *   retranslate   the transcript is already stored — translate it again, burn
+ *   restyle       the translation is already stored — burn again, nothing else
+ *
+ * The ✏️ Edit card picks the shallowest one that can serve the change: a new
+ * font only needs a burn, a new translator needs the translation redone, a new
+ * transcriber or spoken language needs the speech read again.
  *
  * On a `full` job exactly one of `fileId` / `sourceUrl` is set: an upload, or a
- * social link. A `restyle` job needs neither — it has `assetJobId` instead.
+ * social link. The other modes need neither — they have `assetJobId` instead.
  */
 export interface CaptionJob {
   jobId: string;
@@ -84,10 +94,10 @@ export interface CaptionJob {
    */
   cancelToken?: string;
   /** Defaults to 'full' so jobs queued before this field existed still run. */
-  mode?: 'full' | 'restyle';
+  mode?: 'full' | 'restyle' | 'retranslate' | 'retranscribe';
   /**
-   * Which job's R2 prefix holds the input video and the translated cues.
-   * Its own `jobId` for a full run; the original job's for a restyle.
+   * Which job's R2 prefix holds the input video, the transcript and the cues.
+   * Its own `jobId` for a full run; the original job's for every re-run.
    */
   assetJobId?: string;
   /**

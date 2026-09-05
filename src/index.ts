@@ -57,20 +57,6 @@ const ADMIN_COMMANDS: BotCommand[] = [
   { command: 'usage', description: 'Container usage and projected cost this month' },
 ];
 
-/** Language names for the codes this bot is realistically configured with. */
-const LANGUAGES: Record<string, string> = {
-  ar: 'Arabic',
-  en: 'English',
-  fr: 'French',
-  es: 'Spanish',
-  de: 'German',
-  tr: 'Turkish',
-  ru: 'Russian',
-  ur: 'Urdu',
-};
-
-const language = (code: string) => LANGUAGES[code] ?? code.toUpperCase();
-
 /** What the bot is set up to do right now, as opposed to how to use it. */
 const info = (env: Env, settings: CaptionSettings, commands: BotCommand[]) =>
   [
@@ -78,8 +64,6 @@ const info = (env: Env, settings: CaptionSettings, commands: BotCommand[]) =>
     '',
     'It pulls the speech out of a video, translates it, and burns the result back in as subtitles.',
     '',
-    `🗣 Speech: ${env.STT_PROVIDER} first, then the other providers if that one fails`,
-    `🌐 Translation: ${language(env.SOURCE_LANG)} → ${language(env.TARGET_LANG)}`,
     `⏱ Longest video: ${Math.round(Number(env.MAX_VIDEO_SECONDS || 900) / 60)} min`,
     `📦 Upload: up to ${TELEGRAM_DOWNLOAD_LIMIT / 1024 / 1024} MB · from a link: up to ${Math.round(maxSourceBytes(env) / 1024 / 1024)} MB`,
     `🔗 Links: ${
@@ -88,7 +72,7 @@ const info = (env: Env, settings: CaptionSettings, commands: BotCommand[]) =>
         : 'not set up on this bot — send the video file instead'
     }`,
     '',
-    'Current style:',
+    'Current setup:',
     summary(settings),
     '',
     'Commands:',

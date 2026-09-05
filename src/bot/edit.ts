@@ -9,18 +9,20 @@ import {
 import { purgeAssets } from '../media/assets';
 import { fieldKeyboard, readChoice, rootKeyboard, shortLabel, summary, type MenuScope } from './menu';
 import { telegram, type InlineKeyboard } from './telegram';
-import type { Env } from '../types';
+import type { CaptionJob, Env } from '../types';
 
 /**
- * Restyling one delivered video.
+ * Re-running one delivered video.
  *
- * After a job sends its video, it posts a card offering to change how the
- * captions look. Editing here never touches the chat defaults — the whole
- * point is to fix one video without changing what the next one looks like.
+ * After a job sends its video, it posts a card offering to change anything
+ * about it. Editing here never touches the chat defaults — the whole point is
+ * to fix one video without changing what the next one looks like.
  *
- * Applying re-burns from the input video and the translated cues the original
- * run left in R2, so it pays for one encode: no download, no transcription,
- * no translation.
+ * Applying re-runs from the shallowest stage that can serve the change, using
+ * what the first run left in R2 (see `pickMode`): a new font is one encode, a
+ * new translator re-translates the stored transcript, and a new transcriber or
+ * spoken language reads the stored video's speech again. Nothing is ever
+ * downloaded twice.
  *
  * The draft rides on the buttons as a compact code (see `encodeSettings`), not
  * in KV. KV is eventually consistent, and a read-modify-write per tap can
@@ -43,15 +45,42 @@ const editKey = (token: string) => `edit:${token}`;
 
 /** Written once when the card is posted, so there is no rewrite to race. */
 interface EditSession {
-  /** Whose R2 prefix holds the input video and the cues. */
+  /** Whose R2 prefix holds the input video, the transcript and the cues. */
   assetJobId: string;
-  /** The user's original message, so a re-burn replies to it like the first run did. */
+  /** The user's original message, so a re-run replies to it like the first run did. */
   messageId: number;
+  /**
+   * What the run that produced this video used. The draft is compared against
+   * it to work out how much of the pipeline has to happen again.
+   */
+  settings?: CaptionSettings;
 }
 
 export function isEditCallback(data: string): boolean {
   return /^e[msgx]?:/.test(data);
 }
+
+/**
+ * The shallowest re-run that can deliver `draft`.
+ *
+ * Reading the speech again is the expensive one, so it is reserved for the two
+ * settings that actually change what the transcriber does. Everything else is
+ * either a translation input or pure styling.
+ */
+function pickMode(was: CaptionSettings | undefined, draft: CaptionSettings): CaptionJob['mode'] {
+  // No record of the original settings (a card posted by an older deploy):
+  // re-burn, which is what that card promised anyway.
+  if (!was) return 'restyle';
+  if (was.stt !== draft.stt || was.sourceLang !== draft.sourceLang) return 'retranscribe';
+  if (was.translator !== draft.translator || was.targetLang !== draft.targetLang) return 'retranslate';
+  return 'restyle';
+}
+
+const WORKING: Record<string, string> = {
+  restyle: '⏳ Queued — re-burning…',
+  retranslate: '⏳ Queued — translating again…',
+  retranscribe: '⏳ Queued — reading the speech again…',
+};
 
 const scopeFor = (token: string, settings: CaptionSettings): MenuScope => ({
   open: (field) => `em:${token}:${encodeSettings(settings)}:${field}`,
@@ -61,7 +90,7 @@ const scopeFor = (token: string, settings: CaptionSettings): MenuScope => ({
     `es:${token}:${encodeSettings({ ...settings, [field]: value } as CaptionSettings)}:${field}`,
   footer: [
     [
-      { text: '♻️ Apply & re-burn', callback_data: `eg:${token}:${encodeSettings(settings)}` },
+      { text: '♻️ Apply', callback_data: `eg:${token}:${encodeSettings(settings)}` },
       { text: '✖️ Close', callback_data: `ex:${token}` },
     ],
   ],
@@ -69,10 +98,13 @@ const scopeFor = (token: string, settings: CaptionSettings): MenuScope => ({
 
 const CARD_TITLE = '🎬 Captioned with:';
 const MENU_TITLE =
-  '✏️ Editing this video only\n\nChange what you like, then tap ♻️ Apply & re-burn.\nYour chat defaults are untouched.';
+  '✏️ Editing this video only\n\nChange what you like, then tap ♻️ Apply.\nYour chat defaults are untouched.';
 
 /**
- * Offer to restyle the video that was just delivered.
+ * Offer to change the video that was just delivered.
+ *
+ * The settings this run used go into the session, because that is what a later
+ * tap is compared against to decide how much has to happen again.
  *
  * Best-effort: a job that has already sent its video must not be marked failed
  * because the follow-up card did not post.
@@ -93,7 +125,7 @@ export async function sendEditCard(
   try {
     await env.CAPTION_SETTINGS.put(
       editKey(token),
-      JSON.stringify({ assetJobId, messageId } satisfies EditSession),
+      JSON.stringify({ assetJobId, messageId, settings } satisfies EditSession),
       { expirationTtl: EDIT_TTL_SECONDS },
     );
 
@@ -192,12 +224,12 @@ export async function handleEditCallback(
 }
 
 /**
- * Queue the re-burn.
+ * Queue the re-run, at whatever depth the draft calls for.
  *
  * The workflow id is derived from the token and the draft rather than being
  * random, so a double tap lands on an id that already exists and Workflows
- * refuses it. A re-burn is a whole video encode — the one thing that must not
- * happen twice because a button was pressed twice.
+ * refuses it. Every mode here ends in a whole video encode — the one thing
+ * that must not happen twice because a button was pressed twice.
  */
 async function startRestyle(
   env: Env,
@@ -211,12 +243,13 @@ async function startRestyle(
 ): Promise<void> {
   const tg = telegram(env.TELEGRAM_BOT_TOKEN);
   const jobId = `restyle-${token}-${code}`;
+  const mode = pickMode(session.settings, settings);
 
-  await tg.answerCallbackQuery(callbackId, 'Re-burning…');
+  await tg.answerCallbackQuery(callbackId, 'Working…');
   // Buttons come off before the job is queued, so a second tap has nothing
   // left to hit. The card is the status line from here on, and the finished
   // run posts a fresh card of its own.
-  await tg.editMessageText(chatId, messageId, '⏳ Queued…');
+  await tg.editMessageText(chatId, messageId, WORKING[mode ?? 'restyle']);
 
   try {
     await env.CAPTION_WORKFLOW.create({
@@ -225,7 +258,7 @@ async function startRestyle(
         jobId,
         chatId,
         messageId: session.messageId,
-        mode: 'restyle',
+        mode,
         assetJobId: session.assetJobId,
         settings,
         statusMessageId: messageId,
@@ -238,11 +271,11 @@ async function startRestyle(
     const existing = await env.CAPTION_WORKFLOW.get(jobId).catch(() => null);
     if (existing) return;
 
-    console.error('[edit] could not queue a restyle:', err);
+    console.error('[edit] could not queue a re-run:', err);
     await tg.editMessageText(
       chatId,
       messageId,
-      `⚠️ Could not start that re-burn.\n\n${MENU_TITLE}`,
+      `⚠️ Could not start that re-run.\n\n${MENU_TITLE}`,
       rootKeyboard(settings, scopeFor(token, settings)),
     );
   }

@@ -37,6 +37,82 @@ export const CHAR_LIMITS = {
 
 export type CharLimitId = keyof typeof CHAR_LIMITS;
 
+/** Spoken language of the source video. 'auto' lets the STT provider detect it. */
+export const SOURCE_LANGUAGES = {
+  auto: { label: 'Auto-detect' },
+  en: { label: 'English' },
+  ar: { label: 'Arabic' },
+  es: { label: 'Spanish' },
+  fr: { label: 'French' },
+  hi: { label: 'Hindi' },
+  ur: { label: 'Urdu' },
+  fa: { label: 'Persian' },
+  tr: { label: 'Turkish' },
+  ru: { label: 'Russian' },
+} as const;
+
+export type SourceLangId = keyof typeof SOURCE_LANGUAGES;
+
+/** Language captions are translated into. */
+export const TARGET_LANGUAGES = {
+  ar: { label: 'Arabic' },
+  en: { label: 'English' },
+  es: { label: 'Spanish' },
+  fr: { label: 'French' },
+  hi: { label: 'Hindi' },
+  ur: { label: 'Urdu' },
+  fa: { label: 'Persian' },
+  tr: { label: 'Turkish' },
+  ru: { label: 'Russian' },
+  pt: { label: 'Portuguese' },
+} as const;
+
+export type TargetLangId = keyof typeof TARGET_LANGUAGES;
+
+/** Scripts that read right-to-left — drives caption shaping and line width in `buildAss`. */
+const RTL_LANGS = new Set<string>(['ar', 'ur', 'fa']);
+
+export const isRtlLang = (lang: string): boolean => RTL_LANGS.has(lang);
+
+/**
+ * Which transcription provider is tried FIRST. The others still follow as
+ * fallbacks — see `sttChain` — so this is a preference, not a restriction.
+ */
+export const STT_PROVIDERS = {
+  groq: { label: 'Groq Whisper — fastest' },
+  mistral: { label: 'Mistral Voxtral' },
+  'workers-ai': { label: 'Cloudflare Whisper' },
+} as const;
+
+export type SttProviderId = keyof typeof STT_PROVIDERS;
+
+/**
+ * Translation models.
+ *
+ * `kind` is the API shape, not a label: a chat model is sent `messages` and
+ * answers in `response`, while m2m100 is sent `text`/`source_lang`/`target_lang`
+ * and answers in `translated_text`.
+ */
+export const TRANSLATORS = {
+  llama70b: {
+    label: 'Llama 3.3 70B — most accurate',
+    model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    kind: 'chat',
+  },
+  scout: {
+    label: 'Llama 4 Scout — faster',
+    model: '@cf/meta/llama-4-scout-17b-16e-instruct',
+    kind: 'chat',
+  },
+  m2m100: {
+    label: 'M2M100 — literal, cheapest',
+    model: '@cf/meta/m2m100-1.2b',
+    kind: 'mt',
+  },
+} as const;
+
+export type TranslatorId = keyof typeof TRANSLATORS;
+
 export interface CaptionSettings {
   preset: CaptionPreset;
   size: CaptionSize;
@@ -46,6 +122,10 @@ export interface CaptionSettings {
   background: BackgroundId;
   /** Longest caption line before it is split into another cue. */
   chars: CharLimitId;
+  sourceLang: SourceLangId;
+  targetLang: TargetLangId;
+  stt: SttProviderId;
+  translator: TranslatorId;
 }
 
 export type SettingsField = keyof CaptionSettings;
@@ -112,6 +192,26 @@ export const MENUS: Record<SettingsField, Menu> = {
     icon: '📏',
     options: Object.entries(CHAR_LIMITS).map(([value, c]) => ({ value, label: c.label })),
   },
+  sourceLang: {
+    label: 'Spoken language',
+    icon: '🗣️',
+    options: Object.entries(SOURCE_LANGUAGES).map(([value, l]) => ({ value, label: l.label })),
+  },
+  targetLang: {
+    label: 'Translate to',
+    icon: '🌐',
+    options: Object.entries(TARGET_LANGUAGES).map(([value, l]) => ({ value, label: l.label })),
+  },
+  stt: {
+    label: 'Transcriber',
+    icon: '🎙',
+    options: Object.entries(STT_PROVIDERS).map(([value, p]) => ({ value, label: p.label })),
+  },
+  translator: {
+    label: 'Translator',
+    icon: '🧠',
+    options: Object.entries(TRANSLATORS).map(([value, t]) => ({ value, label: t.label })),
+  },
 };
 
 /**
@@ -119,7 +219,19 @@ export const MENUS: Record<SettingsField, Menu> = {
  * remove, or a code minted by the previous deploy decodes to the wrong
  * settings on a button someone taps after a release.
  */
-const CODE_FIELDS: SettingsField[] = ['preset', 'font', 'size', 'color', 'background', 'position', 'chars'];
+const CODE_FIELDS: SettingsField[] = [
+  'preset',
+  'font',
+  'size',
+  'color',
+  'background',
+  'position',
+  'chars',
+  'sourceLang',
+  'targetLang',
+  'stt',
+  'translator',
+];
 
 /**
  * Squeeze a whole settings object into one base-36 digit per field.
@@ -157,6 +269,15 @@ export function defaults(env: Env): CaptionSettings {
   // Only snaps to a menu option when the deployed number is one of them; an
   // off-menu value would render as a button no tap could ever reproduce.
   const chars = (env.MAX_CAPTION_CHARS in CHAR_LIMITS ? env.MAX_CAPTION_CHARS : '42') as CharLimitId;
+  const sourceLang = (env.SOURCE_LANG in SOURCE_LANGUAGES ? env.SOURCE_LANG : 'auto') as SourceLangId;
+  const targetLang = (env.TARGET_LANG in TARGET_LANGUAGES ? env.TARGET_LANG : 'ar') as TargetLangId;
+  const stt = (env.STT_PROVIDER in STT_PROVIDERS ? env.STT_PROVIDER : 'groq') as SttProviderId;
+
+  // The deployed var names the model itself; match it back to a menu option.
+  const translator =
+    (Object.keys(TRANSLATORS) as TranslatorId[]).find(
+      (id) => TRANSLATORS[id].model === env.TRANSLATION_MODEL,
+    ) ?? 'llama70b';
 
   return {
     preset: env.CAPTION_PRESET || 'clean',
@@ -166,6 +287,10 @@ export function defaults(env: Env): CaptionSettings {
     color: 'white',
     background: 'preset',
     chars,
+    sourceLang,
+    targetLang,
+    stt,
+    translator,
   };
 }
 
