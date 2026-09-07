@@ -386,6 +386,21 @@ function clean(segments: Segment[]): Segment[] {
 const TRANSLATION_UNIT_CHARS = 400;
 /** A pause this long ends a thought, even with no full stop spoken. */
 const TRANSLATION_GAP_SECONDS = 1.2;
+/** How much neighbouring speech the translator is shown around its unit. */
+const TRANSLATION_CONTEXT_CHARS = 200;
+
+/** Collapse consecutive segments into the single span handed to the translator. */
+function asUnit(segments: Segment[]): Segment {
+  return {
+    start: segments[0].start,
+    end: segments[segments.length - 1].end,
+    text: segments.map((s) => s.text).join(' '),
+  };
+}
+
+/** Length of the text those segments would join into. */
+const unitLength = (segments: Segment[]): number =>
+  segments.reduce((sum, s) => sum + s.text.length + 1, -1);
 
 /**
  * Glue consecutive segments back into whole sentences for the translator.
@@ -400,28 +415,74 @@ const TRANSLATION_GAP_SECONDS = 1.2;
  * Genuinely disconnected speech therefore stays disconnected: a video that is
  * separate one-line utterances hits the gap rule and is translated line by
  * line, which is the right unit for it.
+ *
+ * The length cap is the awkward case, and the reason this buffers rather than
+ * appending greedily. Reaching the cap mid-sentence used to close the unit at
+ * whatever segment boundary happened to be there, so "I'll do more" and
+ * "videos on that" became two units and each half was translated blind — the
+ * exact failure the grouping exists to prevent, reintroduced by the cap. A
+ * forced break now rewinds to the last sentence end inside the buffer and
+ * carries the remainder forward, and cuts where it stands only when the buffer
+ * holds no sentence boundary at all.
  */
 function groupForTranslation(segments: Segment[]): Segment[] {
   const units: Segment[] = [];
+  let buffer: Segment[] = [];
+
+  const flushAll = () => {
+    if (buffer.length) units.push(asUnit(buffer));
+    buffer = [];
+  };
+
+  /** Close the buffer at its last sentence end, carrying the rest forward. */
+  const flushAtSentence = () => {
+    let boundary = -1;
+    for (let i = 0; i < buffer.length - 1; i++) {
+      if (SENTENCE_END.test(buffer[i].text)) boundary = i;
+    }
+    if (boundary === -1) {
+      flushAll();
+      return;
+    }
+    units.push(asUnit(buffer.slice(0, boundary + 1)));
+    buffer = buffer.slice(boundary + 1);
+  };
 
   for (const segment of segments) {
-    const previous = units[units.length - 1];
-    const continues =
-      previous &&
-      !SENTENCE_END.test(previous.text) &&
-      segment.start - previous.end <= TRANSLATION_GAP_SECONDS &&
-      previous.text.length + segment.text.length + 1 <= TRANSLATION_UNIT_CHARS;
+    const previous = buffer[buffer.length - 1];
 
-    if (continues) {
-      previous.text = `${previous.text} ${segment.text}`;
-      previous.end = segment.end;
-      continue;
+    if (previous) {
+      const ended = SENTENCE_END.test(previous.text);
+      const paused = segment.start - previous.end > TRANSLATION_GAP_SECONDS;
+      const fits = unitLength(buffer) + 1 + segment.text.length <= TRANSLATION_UNIT_CHARS;
+
+      if (ended || paused) {
+        flushAll();
+      } else if (!fits) {
+        flushAtSentence();
+        // The carried remainder can still be too long to take this segment, in
+        // which case it stands as its own unit rather than overflowing the cap.
+        if (buffer.length && unitLength(buffer) + 1 + segment.text.length > TRANSLATION_UNIT_CHARS) {
+          flushAll();
+        }
+      }
     }
 
-    units.push({ ...segment });
+    buffer.push(segment);
   }
 
+  flushAll();
   return units;
+}
+
+/** The tail of the previous unit and the head of the next, as context. */
+const contextTail = (text?: string): string =>
+  text ? text.slice(Math.max(0, text.length - TRANSLATION_CONTEXT_CHARS)) : '';
+const contextHead = (text?: string): string => (text ? text.slice(0, TRANSLATION_CONTEXT_CHARS) : '');
+
+interface TranslationContext {
+  before: string;
+  after: string;
 }
 
 export async function translateSegments(
@@ -434,23 +495,71 @@ export async function translateSegments(
   const source = sourceLang && sourceLang !== 'auto' ? sourceLang : 'en';
   const target = targetLang || 'ar';
   const model = TRANSLATORS[translator] ?? TRANSLATORS.llama70b;
+  const units = groupForTranslation(segments);
 
-  // Translated a whole sentence at a time, not a caption-sized fragment.
+  // Translated a whole sentence at a time, not a caption-sized fragment, and
+  // with its neighbours in view. Sentence-aware grouping keeps most sentences
+  // whole, but a stretch of speech that Whisper returned with no punctuation
+  // at all gives it nothing to break on, so a unit can still open mid-thought
+  // — and then the surrounding speech is the only thing that says what a
+  // pronoun or a dangling verb belongs to.
+  //
   // Deliberately returned unfitted: the target language renders at a different
   // length than the source, so these still need splitting into caption-sized
   // cues — but that is done at burn time with `refitSegments`, because the
   // line length is a per-job setting and a restyle has to be able to re-fit
   // the same text to a new limit.
-  return mapLimit(groupForTranslation(segments), 6, async (segment) => {
-    const text = await translateText(env, segment.text, source, target, model);
+  return mapLimit(units, 6, async (unit, i) => {
+    const context: TranslationContext = {
+      before: contextTail(units[i - 1]?.text),
+      after: contextHead(units[i + 1]?.text),
+    };
+    const text = await translateText(env, unit.text, source, target, model, context);
     // Whitespace-normalised the way `clean` does it for the transcript: a model
     // that pads or doubles a space would otherwise have it burned in, because a
     // cue short enough to skip `resegment` never has its words rejoined.
-    return { ...segment, text: text.replace(/\s+/g, ' ').trim() };
+    return { ...unit, text: text.replace(/\s+/g, ' ').trim() };
   });
 }
 
 type TranslatorModel = (typeof TRANSLATORS)[TranslatorId];
+
+/** Scripts a translation can be checked against; a target not listed goes unchecked. */
+const ARABIC_SCRIPT = /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/g;
+const TARGET_SCRIPTS: Record<string, RegExp> = {
+  ar: ARABIC_SCRIPT,
+  ur: ARABIC_SCRIPT,
+  fa: ARABIC_SCRIPT,
+  ru: /[Ѐ-ӿ]/g,
+  hi: /[ऀ-ॿ]/g,
+};
+
+/** Han, kana and hangul — never part of a translation into a language on the menu. */
+const CJK = /[぀-ヿ㐀-䶿一-鿿가-힯]/;
+
+/** Names and numbers keep their source spelling, so some Latin is expected. */
+const MIN_TARGET_SCRIPT_SHARE = 0.2;
+
+/**
+ * Does this read like a translation into `target` at all?
+ *
+ * `translateText` used to retry only on a thrown error or an empty string, so
+ * a model that answered in the wrong language — or leaked a stray token from a
+ * third one, which fp8 Llama does — was taken at face value and burned into
+ * the video. The test is deliberately loose: a line is mostly proper nouns
+ * often enough that some Latin proves nothing, but mostly Latin does.
+ */
+function isPlausible(text: string, target: string): boolean {
+  if (CJK.test(text)) return false;
+
+  const script = TARGET_SCRIPTS[target];
+  if (!script) return true;
+
+  const inScript = (text.match(script) ?? []).length;
+  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+  const letters = inScript + latin;
+  return letters === 0 || inScript / letters >= MIN_TARGET_SCRIPT_SHARE;
+}
 
 async function translateText(
   env: Env,
@@ -458,22 +567,38 @@ async function translateText(
   source: string,
   target: string,
   model: TranslatorModel,
+  context: TranslationContext,
 ): Promise<string> {
   if (!text.trim()) return text;
+
+  // A rejected answer is still kept: one stray foreign word in an otherwise
+  // good line beats falling all the way back to untranslated source text.
+  let best = '';
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const out =
         model.kind === 'chat'
-          ? await promptTranslate(env, model.model, text, source, target)
+          ? await promptTranslate(env, model.model, text, source, target, context)
           : await mtTranslate(env, model.model, text, source, target);
-      if (out) return out;
+      if (out) {
+        if (isPlausible(out, target)) return out;
+        best ||= out;
+        console.error(`[ai] translation was not ${langName(target)}, retrying:`, out.slice(0, 120));
+      }
     } catch (err) {
       if (attempt === 1) console.error('[ai] translation failed, keeping source text:', err);
     }
   }
   // Better to burn the original line than to drop it entirely.
-  return text;
+  return best || text;
+}
+
+/** Models sometimes echo the label or wrap the line in quotes; take that back off. */
+function stripWrapper(text: string): string {
+  const unlabelled = text.replace(/^\s*(?:TEXT|TRANSLATION)\s*:\s*/i, '').trim();
+  const quoted = /^(["'«“])([\s\S]*)(["'»”])$/.exec(unlabelled);
+  return (quoted ? quoted[2] : unlabelled).trim();
 }
 
 /** Chat models: told what to do, and told firmly not to add anything around it. */
@@ -483,25 +608,43 @@ async function promptTranslate(
   text: string,
   source: string,
   target: string,
+  context: TranslationContext,
 ): Promise<string> {
+  const parts = [
+    context.before ? `CONTEXT BEFORE: ${context.before}` : null,
+    `TEXT: ${text}`,
+    context.after ? `CONTEXT AFTER: ${context.after}` : null,
+  ].filter(Boolean);
+
   const res: any = await env.AI.run(model as any, {
     messages: [
       {
         role: 'system',
         content:
           `You translate video subtitles from ${langName(source)} to ${langName(target)}. ` +
-          'Reply with ONLY the translation — no quotes, no notes, no explanations, ' +
-          'nothing before or after it. Keep names and numbers as in the source, and ' +
-          'keep the tone and register the speaker used.',
+          'The message may carry CONTEXT BEFORE and CONTEXT AFTER around the TEXT. ' +
+          'Those are the speech either side of it, given only so that a sentence ' +
+          'running across the boundary, or a pronoun whose subject sits outside it, ' +
+          'still makes sense. Translate ONLY the TEXT — never translate, repeat or ' +
+          'summarise the context. ' +
+          `Reply with ONLY the ${langName(target)} translation of TEXT — no quotes, ` +
+          'no labels, no notes, nothing before or after it. ' +
+          `Every word must be ${langName(target)}: never leave a word untranslated ` +
+          'and never use a third language. Names and numbers keep their source ' +
+          'spelling. Keep the tone and register the speaker used.',
       },
-      { role: 'user', content: text },
+      { role: 'user', content: parts.join('\n\n') },
     ],
     temperature: 0.2,
   } as any);
-  return String(res?.response ?? '').trim();
+  return stripWrapper(String(res?.response ?? '').trim());
 }
 
-/** m2m100 and friends: a plain MT endpoint, no prompting involved. */
+/**
+ * m2m100 and friends: a plain MT endpoint, no prompting involved — and so no
+ * way to pass it the surrounding speech. It is the literal, cheapest option on
+ * the 🧠 Translator menu, and this is part of what that buys.
+ */
 async function mtTranslate(
   env: Env,
   model: string,

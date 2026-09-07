@@ -66,6 +66,17 @@ the change, so a font change costs one encode and a translator change costs no t
 - **Translate whole sentences, never caption-sized fragments.** Transcription stays at the
   provider's granularity and `groupForTranslation` merges it into sentences; splitting first is
   what produced wrong translations, because each half was translated with no context.
+  `TRANSLATION_UNIT_CHARS` is the trap: a cap reached mid-sentence used to close the unit wherever
+  it stood, re-creating the very split the grouping exists to prevent. A forced break now rewinds
+  to the last sentence end in the buffer and carries the rest forward. Whisper returns stretches
+  with *no* punctuation at all, where there is nothing to rewind to — so every unit is also
+  translated with its neighbours as `CONTEXT BEFORE` / `CONTEXT AFTER`, which the model is told to
+  read but never translate. Only chat translators get that; `m2m100` has no prompt to put it in.
+- **A translation is checked for being in the target script before it is kept.** `isPlausible`
+  rejects CJK outright and requires a fifth of the letters to be in the target's script — fp8
+  Llama leaks stray tokens from other languages (a Chinese 几乎 landed mid-Arabic), and
+  `translateText` used to retry only on a throw or an empty string, so anything else was burned
+  in. A rejected answer is still kept over untranslated source text if the retry fails too.
 - **Adding a settings field surfaces it in both menus** — `/settings` and the per-video edit card
   share `MENUS`. If a new field cannot actually change a delivered video, `pickMode` must know
   which re-run depth it needs.
