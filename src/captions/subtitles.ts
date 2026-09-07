@@ -61,7 +61,7 @@ export type CaptionPreset = 'clean' | 'hormozi' | 'cinematic' | 'youtube' | 'nas
 export type CaptionSize = 'small' | 'medium' | 'large';
 /**
  * Where the caption block sits. `align` is the ASS numpad alignment and
- * `margin` scales the base edge margin, which is how the "third" variants lift
+ * `margin` scales the base edge margin, which is how the raised variants lift
  * the text clear of the player chrome social apps draw over a video. A margin
  * only moves the top and bottom rows — libass centres the middle row whatever
  * MarginV says.
@@ -83,6 +83,7 @@ export const POSITIONS = {
   topRight: { label: 'Top right', align: 9, margin: 1 },
   lowerThird: { label: 'Lower third', align: 2, margin: 4 },
   upperThird: { label: 'Upper third', align: 8, margin: 4 },
+  lowerMiddle: { label: 'Lower middle', align: 2, margin: 6 },
 } as const;
 
 export type CaptionPosition = keyof typeof POSITIONS;

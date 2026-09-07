@@ -205,6 +205,7 @@ export const MENUS: Record<SettingsField, Menu> = {
       'bottom',
       'bottomRight',
       'upperThird',
+      'lowerMiddle',
       'lowerThird',
     ],
   },
