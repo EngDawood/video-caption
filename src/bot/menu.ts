@@ -14,9 +14,10 @@ import type { Env } from '../types';
 /**
  * The inline-keyboard settings menu.
  *
- * The same keyboards drive two flows, so the callback_data prefixes are handed
- * in as a `MenuScope` rather than hard-coded: /settings edits the chat defaults
- * (this file), while the ✏️ Edit card edits one video's draft (bot/edit.ts).
+ * The same keyboards drive three flows, so the callback_data prefixes are
+ * handed in as a `MenuScope` rather than hard-coded: /settings edits the chat
+ * defaults (this file), the 🧾 confirm card edits one video's draft before it
+ * runs (bot/jobs.ts), and the ✏️ Edit card edits one after it has (bot/edit.ts).
  *
  * callback_data grammar for the chat-defaults scope (Telegram caps it at 64
  * bytes):
@@ -28,7 +29,8 @@ import type { Env } from '../types';
 
 const FIELDS = ALL_FIELDS;
 
-export const MENU_TITLE = '⚙️ Caption settings\n\nTap a setting to change it. New videos use these.';
+export const MENU_TITLE =
+  '⚙️ Caption settings\n\nTap a setting to change it. Every new video starts from these — the 🧾 card each video opens on is seeded from them, and changing it there affects that video alone.';
 
 /** Where a keyboard's buttons point, and what sits under the settings rows. */
 export interface MenuScope {

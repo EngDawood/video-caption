@@ -129,6 +129,21 @@ export const REVIEW = {
 
 export type ReviewId = keyof typeof REVIEW;
 
+/**
+ * Whether a video stops on a settings card before anything is spent.
+ *
+ * On is the default: the card lists what this video is about to be captioned
+ * with, and a change made on it applies to that video alone — the chat
+ * defaults it was seeded from are never written back. Off is the old
+ * behaviour, where an upload starts the moment it arrives.
+ */
+export const CONFIRM = {
+  on: { label: 'On — show me the settings first' },
+  off: { label: 'Off — start straight away' },
+} as const;
+
+export type ConfirmId = keyof typeof CONFIRM;
+
 export interface CaptionSettings {
   preset: CaptionPreset;
   size: CaptionSize;
@@ -144,6 +159,8 @@ export interface CaptionSettings {
   translator: TranslatorId;
   /** Stop and show the script before burning. */
   review: ReviewId;
+  /** Stop and show these settings before the video is started at all. */
+  confirm: ConfirmId;
 }
 
 export type SettingsField = keyof CaptionSettings;
@@ -187,11 +204,19 @@ export const MENUS: Record<SettingsField, Menu> = {
   size: {
     label: 'Size',
     icon: '🔠',
+    // Append only, like every other option list: `encodeSettings` puts the
+    // index on the buttons, so the two new steps go on the end and the
+    // keyboard reads them in size order via `layout`. The percentages are of
+    // the medium default, which is the question the menu kept raising — small
+    // and medium are 30% apart, not the same.
     options: [
-      { value: 'small', label: 'Small' },
-      { value: 'medium', label: 'Medium' },
-      { value: 'large', label: 'Large' },
+      { value: 'small', label: 'Small — 70%' },
+      { value: 'medium', label: 'Medium — 100%' },
+      { value: 'large', label: 'Large — 150%' },
+      { value: 'xsmall', label: 'Extra small — 55%' },
+      { value: 'xlarge', label: 'Extra large — 200%' },
     ],
+    layout: ['xsmall', 'small', 'medium', 'large', 'xlarge'],
   },
   color: {
     label: 'Text colour',
@@ -256,6 +281,11 @@ export const MENUS: Record<SettingsField, Menu> = {
     icon: '📝',
     options: Object.entries(REVIEW).map(([value, r]) => ({ value, label: r.label })),
   },
+  confirm: {
+    label: 'Confirm settings',
+    icon: '🧾',
+    options: Object.entries(CONFIRM).map(([value, c]) => ({ value, label: c.label })),
+  },
 };
 
 /**
@@ -264,14 +294,28 @@ export const MENUS: Record<SettingsField, Menu> = {
  * Every other field can still change a video that already exists, which is
  * what that card re-runs. Reviewing the script cannot: the script has been
  * burned by the time the card is posted, and the card is itself the place the
- * review would have happened.
+ * review would have happened. Nor can 🧾 Confirm settings: the run it gates
+ * has already happened by then.
  */
-const CHAT_ONLY = new Set<SettingsField>(['review']);
+const CHAT_ONLY = new Set<SettingsField>(['review', 'confirm']);
+
+/**
+ * The one setting the 🧾 confirm card leaves out.
+ *
+ * Everything else on it still shapes the run it is gating — including 📝 Check
+ * script, which the ✏️ card cannot offer but this one is posted before. Turning
+ * the card itself off *from* the card would only apply to the video already
+ * showing it, which means nothing.
+ */
+const START_ONLY_EXCLUDED = new Set<SettingsField>(['confirm']);
 
 export const ALL_FIELDS = Object.keys(MENUS) as SettingsField[];
 
 /** The fields the ✏️ Edit card shows, in menu order. */
 export const EDIT_FIELDS = ALL_FIELDS.filter((field) => !CHAT_ONLY.has(field));
+
+/** The fields the 🧾 confirm card shows, in menu order. */
+export const START_FIELDS = ALL_FIELDS.filter((field) => !START_ONLY_EXCLUDED.has(field));
 
 /**
  * Field order for the compact code below. Append only — never reorder or
@@ -291,6 +335,7 @@ const CODE_FIELDS: SettingsField[] = [
   'stt',
   'translator',
   'review',
+  'confirm',
 ];
 
 /**
@@ -354,6 +399,9 @@ export function defaults(env: Env): CaptionSettings {
     // Off by default: a video that comes back without needing a tap is the
     // point of the bot, and the ✏️ card can still fix anything afterwards.
     review: 'off',
+    // On by default: the card costs one tap and is the only chance to change
+    // what a video is captioned with *before* the transcription is paid for.
+    confirm: 'on',
   };
 }
 
