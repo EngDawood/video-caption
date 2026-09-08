@@ -47,8 +47,10 @@ export interface Env {
    */
   DOWNLOAD_API_KEY?: string;
   /**
-   * Telegram chat id allowed to run /usage. Unset disables the command —
-   * it fails closed so billing figures never leak to other users.
+   * Comma-separated Telegram chat ids allowed to use the bot at all, and the
+   * only ones offered /usage. Unset fails OPEN — the bot is public until this
+   * names someone. Set in wrangler.jsonc: a chat id is not a credential, and
+   * a var cannot be forgotten by a deploy the way a secret can.
    */
   ADMIN_CHAT_ID?: string;
   /** For /usage. Needs Account Analytics: Read — nothing more. */

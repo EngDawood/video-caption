@@ -7,11 +7,6 @@ TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
 # Any random string; must match what scripts/set-webhook.mjs sends
 TELEGRAM_WEBHOOK_SECRET=change-me
 
-# Your Telegram chat id (from @userinfobot) — the only chat allowed to run
-# /usage. Unset means the command is disabled for everyone.
-# In production: npx wrangler secret put ADMIN_CHAT_ID
-ADMIN_CHAT_ID=
-
 # For /usage. Token needs Account Analytics: Read and nothing else.
 # CLOUDFLARE_API_TOKEN=
 # CLOUDFLARE_ACCOUNT_ID=
