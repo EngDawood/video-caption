@@ -50,8 +50,20 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, i: number
 // --- transcription ---------------------------------------------------------
 
 /**
+ * Silence prepended to every chunk before it is transcribed.
+ *
+ * Whisper swallows the opening words when speech starts on the very first
+ * sample: "learn to speak in cadence" came back as "to speak in cadence", and
+ * the same thing happens at the head of each chunk of a long video. A short
+ * run-up of silence is enough to stop it. The container pads the audio and
+ * this file takes the offset back off the timings.
+ */
+export const TRANSCRIBE_LEAD_SECONDS = 1;
+
+/**
  * Transcribe one audio chunk. `offset` is where this chunk starts in the full
- * video, so the returned timings are absolute.
+ * video, so the returned timings are absolute; `lead` is the silence the
+ * container prepended, which has to come back off before that is true.
  */
 export async function transcribeChunk(
   env: Env,
@@ -60,6 +72,7 @@ export async function transcribeChunk(
   fallbackDuration: number,
   sourceLang: string,
   preferred: SttProviderId,
+  lead = 0,
 ): Promise<Segment[]> {
   const raw = await transcribe(env, audio, sourceLang, preferred);
 
@@ -69,11 +82,18 @@ export async function transcribeChunk(
   // sentences in half before translation and mistranslating both halves.
   // Caption-sizing happens after translation, on the translated text, via
   // `refitSegments` at burn time.
-  return normalize(raw, fallbackDuration).map((s) => ({
-    start: s.start + offset,
-    end: s.end + offset,
-    text: s.text,
-  }));
+  return (
+    normalize(raw, fallbackDuration + lead)
+      .map((s) => ({ start: s.start - lead, end: s.end - lead, text: s.text }))
+      // The pad is silence, so nothing should be transcribed inside it — but a
+      // model that hallucinates one there must not push every real cue late.
+      .filter((s) => s.end > 0)
+      .map((s) => ({
+        start: Math.max(0, s.start) + offset,
+        end: Math.max(0, s.end) + offset,
+        text: s.text,
+      }))
+  );
 }
 
 interface CaptionLimits {
@@ -524,39 +544,73 @@ export async function translateSegments(
 
 type TranslatorModel = (typeof TRANSLATORS)[TranslatorId];
 
-/** Scripts a translation can be checked against; a target not listed goes unchecked. */
-const ARABIC_SCRIPT = /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/g;
-const TARGET_SCRIPTS: Record<string, RegExp> = {
-  ar: ARABIC_SCRIPT,
-  ur: ARABIC_SCRIPT,
-  fa: ARABIC_SCRIPT,
-  ru: /[Ѐ-ӿ]/g,
-  hi: /[ऀ-ॿ]/g,
-};
+/**
+ * The writing systems a translation might come back in.
+ *
+ * Checking only the target's own script is not enough: a leaked word in a
+ * third script is invisible to a share-of-target test, because it counts
+ * towards neither side of the ratio. `لآخرين` came back with three Cyrillic
+ * letters spliced into the middle of the Arabic and passed a check that knew
+ * only about Arabic and Latin.
+ *
+ * Deliberately not global: `lastIndex` persists on a shared /g regex, so
+ * `test` would alternate true and false down the list. Counting adds the flag.
+ */
+const SCRIPTS = {
+  arabic: /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/,
+  cyrillic: /[Ѐ-ӿԀ-ԯ]/,
+  greek: /[Ͱ-Ͽἀ-῿]/,
+  hebrew: /[֐-׿]/,
+  devanagari: /[ऀ-ॿ]/,
+  thai: /[฀-๿]/,
+  armenian: /[԰-֏]/,
+  georgian: /[Ⴀ-ჿ]/,
+  cjk: /[぀-ヿ㐀-䶿一-鿿가-힯]/,
+} as const;
 
-/** Han, kana and hangul — never part of a translation into a language on the menu. */
-const CJK = /[぀-ヿ㐀-䶿一-鿿가-힯]/;
+type ScriptName = keyof typeof SCRIPTS;
+
+/** The script a target language is written in; a target not listed goes unchecked. */
+const TARGET_SCRIPT: Record<string, ScriptName> = {
+  ar: 'arabic',
+  ur: 'arabic',
+  fa: 'arabic',
+  ru: 'cyrillic',
+  hi: 'devanagari',
+};
 
 /** Names and numbers keep their source spelling, so some Latin is expected. */
 const MIN_TARGET_SCRIPT_SHARE = 0.2;
+
+const countIn = (text: string, script: RegExp): number =>
+  (text.match(new RegExp(script.source, 'g')) ?? []).length;
 
 /**
  * Does this read like a translation into `target` at all?
  *
  * `translateText` used to retry only on a thrown error or an empty string, so
  * a model that answered in the wrong language — or leaked a stray token from a
- * third one, which fp8 Llama does — was taken at face value and burned into
- * the video. The test is deliberately loose: a line is mostly proper nouns
- * often enough that some Latin proves nothing, but mostly Latin does.
+ * third one, which fp8 Llama does often enough to matter — was taken at face
+ * value and burned into the video.
+ *
+ * Two separate tests, because the two failures look nothing alike. Any
+ * character from a script that is neither the target's nor Latin is a leak,
+ * and one is enough to reject. The share test then catches the answer that is
+ * simply not translated: it is deliberately loose, because a line that is
+ * mostly proper nouns is common and proves nothing on its own.
  */
 function isPlausible(text: string, target: string): boolean {
-  if (CJK.test(text)) return false;
+  const expected = TARGET_SCRIPT[target];
 
-  const script = TARGET_SCRIPTS[target];
-  if (!script) return true;
+  // Latin is absent from SCRIPTS on purpose: names and numbers keep it.
+  for (const name of Object.keys(SCRIPTS) as ScriptName[]) {
+    if (name !== expected && SCRIPTS[name].test(text)) return false;
+  }
 
-  const inScript = (text.match(script) ?? []).length;
-  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+  if (!expected) return true;
+
+  const inScript = countIn(text, SCRIPTS[expected]);
+  const latin = countIn(text, /[A-Za-z]/);
   const letters = inScript + latin;
   return letters === 0 || inScript / letters >= MIN_TARGET_SCRIPT_SHARE;
 }

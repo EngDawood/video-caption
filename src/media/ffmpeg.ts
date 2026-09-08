@@ -34,8 +34,9 @@ export function ffmpegFor(env: Env, jobId: string) {
     },
 
     /** Pull `dur` seconds of audio starting at `start` (seconds). */
-    async audioSlice(start: number, dur: number): Promise<ArrayBuffer> {
-      const res = await stub.fetch(`${BASE}/job/audio?start=${start}&dur=${dur}`);
+    /** `lead` prepends that many seconds of silence — see `handleAudio`. */
+    async audioSlice(start: number, dur: number, lead = 0): Promise<ArrayBuffer> {
+      const res = await stub.fetch(`${BASE}/job/audio?start=${start}&dur=${dur}&lead=${lead}`);
       return (await unwrap(res, 'audio slice')).arrayBuffer();
     },
 

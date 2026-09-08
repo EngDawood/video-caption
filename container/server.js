@@ -8,7 +8,7 @@
  * can rely on files left on local disk by the previous call.
  *
  *   POST   /job/video?audio=skip  raw video bytes -> { duration, width, height, hasAudio }
- *   GET    /job/audio?start=&dur=         -> mp3 slice of the extracted audio
+ *   GET    /job/audio?start=&dur=&lead=   -> mp3 slice of the extracted audio
  *   PUT    /job/subs    ASS text          -> { ok: true }
  *   POST   /job/burn                      -> burned-in mp4 bytes
  *   DELETE /job                           -> { ok: true }
@@ -169,21 +169,37 @@ async function handleVideo(req, res, url) {
   });
 }
 
-/** Return a slice of the extracted audio so long videos can be transcribed in chunks. */
+/**
+ * Return a slice of the extracted audio so long videos can be transcribed in
+ * chunks.
+ *
+ * `lead` prepends that many seconds of silence. Whisper reliably swallows the
+ * opening words when speech starts on the very first sample — "learn to speak
+ * in cadence" came back as "to speak in cadence" — and it does the same at the
+ * head of every chunk. Silence, not the audio before `start`, because real
+ * lead-in would transcribe words the previous chunk already returned and there
+ * is nothing downstream to de-duplicate them. The worker subtracts `lead` from
+ * the timestamps it gets back.
+ */
 async function handleAudio(res, url) {
   if (!fs.existsSync(AUDIO)) return json(res, 409, { error: 'no_audio_extracted' });
 
   const start = Number(url.searchParams.get('start') || 0);
   const dur = Number(url.searchParams.get('dur') || 0);
+  const lead = Math.max(0, Number(url.searchParams.get('lead') || 0));
 
-  if (!start && !dur) return sendFile(res, AUDIO, 'audio/mpeg');
+  if (!start && !dur && !lead) return sendFile(res, AUDIO, 'audio/mpeg');
 
-  const chunk = path.join(WORK, `chunk-${start}-${dur}.mp3`);
+  const chunk = path.join(WORK, `chunk-${start}-${dur}-${lead}.mp3`);
   await ffmpeg([
     '-ss', String(start),
     ...(dur > 0 ? ['-t', String(dur)] : []),
     '-i', AUDIO,
-    '-c', 'copy',
+    // Padding is a filter, so this leg has to re-encode; matched to the
+    // settings handleVideo extracted with so the chunk stays whisper-shaped.
+    ...(lead > 0
+      ? ['-af', `adelay=${Math.round(lead * 1000)}:all=1`, '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', '64k']
+      : ['-c', 'copy']),
     chunk,
   ]);
   await sendFile(res, chunk, 'audio/mpeg');
