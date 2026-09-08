@@ -105,6 +105,19 @@ the change, so a font change costs one encode and a translator change costs no t
   stripped, so a report of boxes is diagnosed from `wrangler tail` rather than a screenshot — an
   empty log means the text was clean and the font is at fault, which `/debug/fonts` and a re-burn
   with the other font will confirm.
+- **A BorderStyle-3 box is sized from `Outline`, so `Outline: 0` draws no box at all.** This is
+  what made 🎨 Hormozi render as bare yellow text and 🎨 YouTube as bare white — both ship
+  `outline: 'none'` — with 🎞 Background = box or solid powerless to put it back, because those
+  branches set the colour and never the width. `applyOverrides` now guards it once at the end for
+  every path. Verified by rendering all 60 preset × background × colour combinations through real
+  ffmpeg+libass and histogramming the caption band; not the container's own libass build, so it
+  is strong evidence rather than proof.
+- **The backdrop follows the text colour, not the preset.** Every preset ships a black outline,
+  box and shadow. Under ⚫ Black text that is unreadable in every combination — the outline fills
+  the letter counters and the box swallows the text whole (measured 1.0:1 to 1.6:1 contrast). The
+  `light` flag on `TEXT_COLORS` is what `backdropFor` flips on; adding a colour means setting it.
+- **A shadow under a box is a second, offset box.** Two 75% blacks stack to 94%, so 'Translucent
+  box' was not translucent on the presets that carry a shadow. The box branches zero it.
 - **Option lists inside `MENUS` are append-only too, not just `CODE_FIELDS`.** `encodeSettings`
   indexes `MENUS[field].options`, so a value inserted anywhere but the end re-points every button
   the previous deploy minted. `layout` is how a menu still reads in a sensible order — 📍 Position

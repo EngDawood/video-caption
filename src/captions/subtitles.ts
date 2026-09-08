@@ -34,16 +34,24 @@ const COLOR = {
   black: assColor(0, 0, 0),
   hormoziYellow: assColor(254, 212, 36),
   box75Black: assColor(0, 0, 0, 0.25),
+  box75White: assColor(255, 255, 255, 0.25),
   shadow75Black: assColor(0, 0, 0, 0.25),
+  shadow75White: assColor(255, 255, 255, 0.25),
 };
 
-/** Text colours offered in the bot's settings menu. */
+/**
+ * Text colours offered in the bot's settings menu.
+ *
+ * `light` is what the backdrop is chosen against — see `backdropFor`. Every
+ * preset ships a black outline, box and shadow, which is right under the four
+ * light colours and unreadable under the dark one.
+ */
 export const TEXT_COLORS = {
-  white: { label: 'White', value: COLOR.white },
-  yellow: { label: 'Yellow', value: COLOR.hormoziYellow },
-  green: { label: 'Green', value: assColor(0, 255, 135) },
-  cyan: { label: 'Cyan', value: assColor(0, 209, 255) },
-  black: { label: 'Black', value: COLOR.black },
+  white: { label: 'White', value: COLOR.white, light: true },
+  yellow: { label: 'Yellow', value: COLOR.hormoziYellow, light: true },
+  green: { label: 'Green', value: assColor(0, 255, 135), light: true },
+  cyan: { label: 'Cyan', value: assColor(0, 209, 255), light: true },
+  black: { label: 'Black', value: COLOR.black, light: false },
 } as const;
 
 export type TextColorId = keyof typeof TEXT_COLORS;
@@ -215,32 +223,68 @@ export interface AssOptions {
   background?: BackgroundId;
 }
 
+/**
+ * Which way round a caption's backdrop goes.
+ *
+ * Every preset ships a black outline, a black box and a black shadow, which is
+ * right under the four light text colours and unreadable under the fifth: black
+ * text with a black outline is a blob, because the outline fills the counters,
+ * and black text on a black box is nothing at all. The text colour is what the
+ * user picked, so the backdrop is what flips.
+ */
+function backdropFor(color: TextColorId | undefined) {
+  const dark = color ? !TEXT_COLORS[color]?.light : false;
+  return dark
+    ? { edge: COLOR.white, box: COLOR.box75White, shade: COLOR.shadow75White }
+    : { edge: COLOR.black, box: COLOR.box75Black, shade: COLOR.shadow75Black };
+}
+
 /** Apply the per-axis overrides on top of a preset, mirroring the web UI. */
 function applyOverrides(base: PresetStyle, opts: AssOptions): PresetStyle {
   const style = { ...base };
+  const backdrop = backdropFor(opts.color);
 
   if (opts.color && TEXT_COLORS[opts.color]) {
     style.primary = TEXT_COLORS[opts.color].value;
+
+    // The preset's own treatment needs flipping too: 🎞 Background 'preset'
+    // keeps it verbatim, and clean's black outline under black text is as
+    // unreadable as the box is.
+    if (!TEXT_COLORS[opts.color].light) {
+      style.outlineColour = style.borderStyle === 3 ? backdrop.box : backdrop.edge;
+      style.backColour = backdrop.shade;
+    }
   }
 
   switch (opts.background) {
     case 'none':
       style.borderStyle = 1;
-      style.outlineColour = COLOR.black;
+      style.outlineColour = backdrop.edge;
       // Without a box the text needs an outline to stay readable.
       if (style.outline === 'none') style.outline = 'med';
       break;
     case 'box':
       style.borderStyle = 3;
-      style.outlineColour = COLOR.box75Black;
+      style.outlineColour = backdrop.box;
+      // A shadow under BorderStyle 3 is a second, offset copy of the box, and
+      // two 75% blacks stacked are 94% — which is not a translucent box.
+      style.shadow = 0;
       break;
     case 'solid':
       style.borderStyle = 3;
-      style.outlineColour = COLOR.black;
+      style.outlineColour = backdrop.edge;
+      style.shadow = 0;
       break;
     default:
       break;
   }
+
+  // libass sizes a BorderStyle-3 box from the Outline value, so a box style
+  // with no outline draws no box at all — which is what made 🎨 Hormozi render
+  // as bare yellow text and 🎨 YouTube as bare white text, with 🎞 Background
+  // powerless to put the box back. Guarded once here rather than in each
+  // preset and each branch above.
+  if (style.borderStyle === 3 && style.outline === 'none') style.outline = 'med';
 
   return style;
 }
