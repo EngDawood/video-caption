@@ -1,4 +1,5 @@
 import {
+  ALL_FIELDS,
   MENUS,
   isValid,
   labelFor,
@@ -25,7 +26,7 @@ import type { Env } from '../types';
  *   x               close
  */
 
-const FIELDS = Object.keys(MENUS) as SettingsField[];
+const FIELDS = ALL_FIELDS;
 
 export const MENU_TITLE = '⚙️ Caption settings\n\nTap a setting to change it. New videos use these.';
 
@@ -37,6 +38,12 @@ export interface MenuScope {
   pick: (field: SettingsField, value: string) => string;
   /** Rows appended below the settings rows on the top level. */
   footer: InlineKeyboard;
+  /**
+   * Which settings this scope offers, in menu order. Defaults to all of them —
+   * the ✏️ Edit card narrows it, because a field that cannot change a video
+   * that already exists has no business on a card that re-runs one.
+   */
+  fields?: SettingsField[];
 }
 
 const chatScope: MenuScope = {
@@ -47,7 +54,7 @@ const chatScope: MenuScope = {
 
 /** Top level: one row per setting, showing what it is currently set to. */
 export function rootKeyboard(settings: CaptionSettings, scope: MenuScope = chatScope): InlineKeyboard {
-  const rows: InlineKeyboard = FIELDS.map((field) => [
+  const rows: InlineKeyboard = (scope.fields ?? FIELDS).map((field) => [
     {
       text: `${MENUS[field].icon} ${MENUS[field].label}: ${shortLabel(field, settings[field])}`,
       callback_data: scope.open(field),
@@ -148,6 +155,6 @@ export async function handleMenuCallback(
   await tg.answerCallbackQuery(callbackId);
 }
 
-export function summary(settings: CaptionSettings): string {
-  return FIELDS.map((f) => `${MENUS[f].icon} ${MENUS[f].label}: ${shortLabel(f, settings[f])}`).join('\n');
+export function summary(settings: CaptionSettings, fields: SettingsField[] = FIELDS): string {
+  return fields.map((f) => `${MENUS[f].icon} ${MENUS[f].label}: ${shortLabel(f, settings[f])}`).join('\n');
 }

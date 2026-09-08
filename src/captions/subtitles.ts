@@ -1,3 +1,4 @@
+import { foreignCharacters, sanitize } from './text';
 import type { Segment } from '../types';
 
 /**
@@ -269,6 +270,15 @@ export function buildAss(segments: Segment[], opts: AssOptions): string {
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
   ].join('\n');
 
+  // Logged, not shown: a caption that renders boxes is reported as a
+  // screenshot, and this is what turns that into a codepoint in `wrangler
+  // tail`. An empty list means the text was clean and the font is at fault —
+  // check it with `/debug/fonts`.
+  const foreign = foreignCharacters(segments.map((s) => s.text).join(''));
+  if (foreign.length > 0) {
+    console.warn(`[ass] stripped characters no caption font need draw: ${foreign.join(', ')}`);
+  }
+
   const events = segments
     .filter((s) => s.text.trim())
     .map((s) => {
@@ -302,7 +312,10 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * re-introducing our own `\N` line breaks.
  */
 function escapeAss(text: string): string {
-  return text
+  // `sanitize` here as well as where the text was produced: this is the one
+  // point every burned character passes through, so it also covers cues stored
+  // in R2 before that existed and text a user has pasted back by hand.
+  return sanitize(text)
     .replace(/\\/g, '')
     .replace(/[{}]/g, '')
     .replace(/\r?\n/g, '\\N')

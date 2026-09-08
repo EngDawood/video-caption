@@ -1,4 +1,5 @@
 import { TRANSLATORS, type SttProviderId, type TranslatorId } from '../captions/settings';
+import { sanitize } from '../captions/text';
 import type { Env, Segment } from '../types';
 
 /** Only the Workers AI leg of the STT chain — Groq and Mistral name their own. */
@@ -98,7 +99,7 @@ export function refitSegments(segments: Segment[], maxChars: number): Segment[] 
   for (const raw of segments) {
     // Also the backstop for cues already sitting in R2 from before the line
     // above existed, and for text a user has pasted back by hand.
-    const segment = { ...raw, text: raw.text.replace(/\s+/g, ' ').trim() };
+    const segment = { ...raw, text: sanitize(raw.text).replace(/\s+/g, ' ').trim() };
     const previous = merged[merged.length - 1];
     const joined = previous ? `${previous.text} ${segment.text}` : '';
 
@@ -368,7 +369,9 @@ function groupWords(words: any[]): Segment[] {
 /** Drop empties and make sure every cue has a sane, non-overlapping duration. */
 function clean(segments: Segment[]): Segment[] {
   const out = segments
-    .map((s) => ({ ...s, text: s.text.replace(/\s+/g, ' ').trim() }))
+    // `sanitize` as well as whitespace: a provider that returns Arabic in
+    // presentation forms hands the burn characters most fonts cannot draw.
+    .map((s) => ({ ...s, text: sanitize(s.text).replace(/\s+/g, ' ').trim() }))
     .filter((s) => s.text.length > 0)
     .sort((a, b) => a.start - b.start);
 
@@ -517,8 +520,10 @@ export async function translateSegments(
     const text = await translateText(env, unit.text, source, target, model, context);
     // Whitespace-normalised the way `clean` does it for the transcript: a model
     // that pads or doubles a space would otherwise have it burned in, because a
-    // cue short enough to skip `resegment` never has its words rejoined.
-    return { ...unit, text: text.replace(/\s+/g, ' ').trim() };
+    // cue short enough to skip `resegment` never has its words rejoined. The
+    // same call drops the bidi marks and presentation forms a model leaks into
+    // Arabic — see `sanitize`.
+    return { ...unit, text: sanitize(text).replace(/\s+/g, ' ').trim() };
   });
 }
 

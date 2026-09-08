@@ -114,6 +114,21 @@ export const TRANSLATORS = {
 
 export type TranslatorId = keyof typeof TRANSLATORS;
 
+/**
+ * Whether a run stops and shows the script before it burns anything.
+ *
+ * Off is the default: the fast path is a video coming back with no taps in
+ * between. On, the job stops once the translation is stored, posts the whole
+ * script as an .srt and waits — the burn is then a re-run from those stored
+ * cues, which costs one encode and no transcription.
+ */
+export const REVIEW = {
+  off: { label: 'Off — burn straight away' },
+  on: { label: 'On — show me the script first' },
+} as const;
+
+export type ReviewId = keyof typeof REVIEW;
+
 export interface CaptionSettings {
   preset: CaptionPreset;
   size: CaptionSize;
@@ -127,6 +142,8 @@ export interface CaptionSettings {
   targetLang: TargetLangId;
   stt: SttProviderId;
   translator: TranslatorId;
+  /** Stop and show the script before burning. */
+  review: ReviewId;
 }
 
 export type SettingsField = keyof CaptionSettings;
@@ -234,7 +251,27 @@ export const MENUS: Record<SettingsField, Menu> = {
     icon: '🧠',
     options: Object.entries(TRANSLATORS).map(([value, t]) => ({ value, label: t.label })),
   },
+  review: {
+    label: 'Check script',
+    icon: '📝',
+    options: Object.entries(REVIEW).map(([value, r]) => ({ value, label: r.label })),
+  },
 };
+
+/**
+ * Settings the per-video ✏️ card leaves out.
+ *
+ * Every other field can still change a video that already exists, which is
+ * what that card re-runs. Reviewing the script cannot: the script has been
+ * burned by the time the card is posted, and the card is itself the place the
+ * review would have happened.
+ */
+const CHAT_ONLY = new Set<SettingsField>(['review']);
+
+export const ALL_FIELDS = Object.keys(MENUS) as SettingsField[];
+
+/** The fields the ✏️ Edit card shows, in menu order. */
+export const EDIT_FIELDS = ALL_FIELDS.filter((field) => !CHAT_ONLY.has(field));
 
 /**
  * Field order for the compact code below. Append only — never reorder or
@@ -253,6 +290,7 @@ const CODE_FIELDS: SettingsField[] = [
   'targetLang',
   'stt',
   'translator',
+  'review',
 ];
 
 /**
@@ -313,6 +351,9 @@ export function defaults(env: Env): CaptionSettings {
     targetLang,
     stt,
     translator,
+    // Off by default: a video that comes back without needing a tap is the
+    // point of the bot, and the ✏️ card can still fix anything afterwards.
+    review: 'off',
   };
 }
 

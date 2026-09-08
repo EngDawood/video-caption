@@ -33,6 +33,11 @@ Three layers, each with a different billing model:
 
 Pipeline: fetch → extract audio → transcribe (chunked) → translate → burn → deliver → offer edit.
 
+With 📝 **Check script** on, the run *ends* after translate and posts the script as an `.srt` with
+a ✅ Burn it card. The burn is then the same `restyle` re-run the ♻️ Apply button has always
+queued, over the cues already in R2 — no Workflow instance is held open waiting for a tap, and
+the container had already been released before the translation anyway.
+
 A finished run leaves the input video and `segments.json` (transcript **and** translation) in R2
 for 24h, which is what lets the ✏️ Edit card re-run at four depths — `full`, `retranscribe`,
 `retranslate`, `restyle`. `pickMode` in `src/bot/edit.ts` picks the shallowest one that can serve
@@ -48,6 +53,7 @@ the change, so a font change costs one encode and a translator change costs no t
 | `src/captions/subtitles.ts` | ASS generation, presets, RTL shaping |
 | `src/bot/edit.ts` | Per-video re-run card |
 | `src/bot/menu.ts` | `/settings` keyboards, shared with the edit card via `MenuScope` |
+| `src/captions/text.ts` | Strips what no caption font can draw — see the tofu gotcha below |
 
 ## Gotchas
 
@@ -77,6 +83,22 @@ the change, so a font change costs one encode and a translator change costs no t
   Llama leaks stray tokens from other languages (a Chinese 几乎 landed mid-Arabic), and
   `translateText` used to retry only on a throw or an empty string, so anything else was burned
   in. A rejected answer is still kept over untranslated source text if the retry fails too.
+- **Boxes inside Arabic words are the font failing on a character, not a bidi bug.** libass hands
+  the string to HarfBuzz as it stands, so anything the font has no glyph for is drawn as `.notdef`.
+  The two culprits worth removing are bidi/joining controls a translator leaks in (`buildAss`
+  already wraps each RTL line in its own RLE/PDF pair, so an extra RLM adds nothing) and Arabic
+  **presentation forms** — a model answering with ﻻ (U+FEFB) instead of the canonical pair لا has
+  produced text only a font shipping Presentation Forms-B can draw, and most Arabic fonts carry
+  that ligature as a GSUB rule over the canonical letters instead. `sanitize` in
+  `src/captions/text.ts` removes the first and NFKC-normalises the second, applied where text is
+  produced *and* inside `escapeAss` as the backstop for cues stored before it existed. U+200C is
+  deliberately kept: Persian and Urdu spell words with it. `buildAss` logs every codepoint it
+  stripped, so a report of boxes is diagnosed from `wrangler tail` rather than a screenshot — an
+  empty log means the text was clean and the font is at fault, which `/debug/fonts` and a re-burn
+  with the other font will confirm.
+- **A settings field that cannot change an existing video belongs in `CHAT_ONLY`.** `MENUS` drives
+  both menus, and `MenuScope.fields` is what narrows the per-video card to `EDIT_FIELDS` —
+  reviewing a script is meaningless on a card posted after the burn.
 - **Adding a settings field surfaces it in both menus** — `/settings` and the per-video edit card
   share `MENUS`. If a new field cannot actually change a delivered video, `pickMode` must know
   which re-run depth it needs.

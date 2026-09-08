@@ -176,6 +176,38 @@ export function telegram(token: string) {
       const data = (await res.json()) as { ok: boolean; description?: string };
       if (!data.ok) throw new Error(`telegram sendVideo failed: ${data.description ?? res.status}`);
     },
+
+    /**
+     * Send a text file — used for the .srt export of a video's script.
+     *
+     * A file rather than a message because a long video runs to dozens of
+     * cues: Telegram caps a message at 4096 characters, and a document is one
+     * thing to keep, open in a subtitle editor, or read through in one go.
+     */
+    async sendDocument(
+      chatId: number,
+      name: string,
+      body: string,
+      opts: { caption?: string; replyTo?: number; keyboard?: InlineKeyboard } = {},
+    ) {
+      const form = new FormData();
+      form.append('chat_id', String(chatId));
+      if (opts.caption) form.append('caption', opts.caption);
+      if (opts.replyTo) {
+        form.append('reply_to_message_id', String(opts.replyTo));
+        form.append('allow_sending_without_reply', 'true');
+      }
+      if (opts.keyboard) {
+        form.append('reply_markup', JSON.stringify({ inline_keyboard: opts.keyboard }));
+      }
+      // Named by extension and typed as SubRip so Telegram offers it as a
+      // subtitle file rather than rendering it inline as plain text.
+      form.append('document', new File([body], name, { type: 'application/x-subrip' }));
+
+      const res = await fetch(`${API}/bot${token}/sendDocument`, { method: 'POST', body: form });
+      const data = (await res.json()) as { ok: boolean; description?: string };
+      if (!data.ok) throw new Error(`telegram sendDocument failed: ${data.description ?? res.status}`);
+    },
   };
 }
 

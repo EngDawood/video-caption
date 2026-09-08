@@ -12,7 +12,7 @@ import { assetKeys } from '../media/assets';
 import { ffmpegFor } from '../media/ffmpeg';
 import { FONTS, isRtlLang, loadSettings, type CaptionSettings } from '../captions/settings';
 import { buildAss } from '../captions/subtitles';
-import { sendEditCard } from '../bot/edit';
+import { sendEditCard, sendReviewCard } from '../bot/edit';
 import { shortLabel } from '../bot/menu';
 import { cancelKey, cancelKeyboard } from '../bot/jobs';
 import { telegram } from '../bot/telegram';
@@ -193,6 +193,30 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
         });
 
         cues = translated;
+
+        // 4b. Stop here when the chat asked to check the script first.
+        //
+        //     Everything the burn needs is in R2 now, and the container was
+        //     released before the translation, so ending the run costs
+        //     nothing to resume: ✅ Burn it queues the same `restyle` the ♻️
+        //     Apply button has always queued, over these stored cues. Waiting
+        //     inside the workflow instead would hold an instance open for as
+        //     long as someone takes to read.
+        //
+        //     A card that cannot be posted falls through to the burn rather
+        //     than leaving a job nobody can finish.
+        if (settings.review === 'on') {
+          const offered = await step.do('offer-review', async () => {
+            return sendReviewCard(env, chatId, messageId, assetJobId, settings);
+          });
+
+          if (offered) {
+            await settle('📝 Waiting for you to check the script.');
+            await ffmpeg.cleanup();
+            await this.forgetCancelToken(event.payload.cancelToken);
+            return;
+          }
+        }
       }
 
       // 5. Put the video back in front of ffmpeg. Both paths arrive here with
