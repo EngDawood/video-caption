@@ -4,9 +4,12 @@ import { handleEditCallback, handleTextCorrection, isEditCallback } from './bot/
 import {
   handleCancelCallback,
   handleOfferCallback,
+  handleStartCallback,
   isCancelCallback,
   isOfferCallback,
+  isStartCallback,
   sendOffer,
+  sendStartCard,
   startJob,
 } from './bot/jobs';
 import { MENU_TITLE, handleMenuCallback, rootKeyboard, summary } from './bot/menu';
@@ -29,7 +32,9 @@ const help = (env: Env) =>
     '2. translate it,',
     '3. burn the captions into the video and send it back.',
     '',
-    'A link is previewed first — nothing is transcribed until you tap ✅ Caption it, and a running job can be stopped with ✖️ Stop on its status line.',
+    'Every video stops on a 🧾 card first, listing the settings it is about to be captioned with — style, size, position, language, transcriber, translator. Change anything there and it applies to that video only; your chat defaults are untouched. Nothing is transcribed until you tap ✅ Caption it, and a running job can be stopped with ✖️ Stop on its status line.',
+    '',
+    'If you would rather videos start the moment they arrive, turn 🧾 Confirm settings off in /settings.',
     '',
     `Uploads must be under ${TELEGRAM_DOWNLOAD_LIMIT / 1024 / 1024} MB, which is a Telegram limit on what bots may download. Videos from a link must be under ${Math.round(maxSourceBytes(env) / 1024 / 1024)} MB, so the captioned result still fits back into Telegram.`,
     '',
@@ -182,6 +187,20 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
     if (!origin || !query.data) return;
     if (!isOwner(env, origin.chat.id)) return;
 
+    // The 🧾 confirm card: the settings this video is about to be captioned
+    // with, before any container time or transcription is paid for.
+    if (isStartCallback(query.data)) {
+      await handleStartCallback(
+        env,
+        origin.chat.id,
+        origin.message_id,
+        query.id,
+        query.data,
+        Boolean(origin.photo),
+      );
+      return;
+    }
+
     if (isOfferCallback(query.data)) {
       await handleOfferCallback(
         env,
@@ -258,7 +277,7 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
           return;
         }
         try {
-          await sendOffer(env, chatId, message.message_id, sourceUrl);
+          await sendOffer(env, chatId, message.message_id, sourceUrl, await loadSettings(env, chatId));
         } catch (err) {
           await tg.sendMessage(chatId, `⚠️ ${offerProblem(err)}`, message.message_id);
         }
@@ -277,7 +296,18 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
       return;
     }
 
-    await startJob(env, chatId, message.message_id, { fileId: video.fileId });
+    const settings = await loadSettings(env, chatId);
+
+    // With 🧾 Confirm settings on, an upload stops on the settings card rather
+    // than starting: it is the only chance to change what this video is
+    // captioned with before the transcription is paid for. A card that could
+    // not be parked falls through to the job, so a video is never lost to it.
+    if (settings.confirm === 'on') {
+      const asked = await sendStartCard(env, chatId, { fileId: video.fileId, messageId: message.message_id }, settings);
+      if (asked) return;
+    }
+
+    await startJob(env, chatId, message.message_id, { fileId: video.fileId }, settings);
   } catch (err) {
     console.error('[webhook] failed to start job:', err);
     await tg.sendMessage(chatId, '❌ Could not start the job. Try again.').catch(() => {});

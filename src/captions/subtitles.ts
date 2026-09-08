@@ -59,7 +59,7 @@ export const BACKGROUNDS = {
 export type BackgroundId = keyof typeof BACKGROUNDS;
 
 export type CaptionPreset = 'clean' | 'hormozi' | 'cinematic' | 'youtube' | 'naskh';
-export type CaptionSize = 'small' | 'medium' | 'large';
+export type CaptionSize = 'xsmall' | 'small' | 'medium' | 'large' | 'xlarge';
 /**
  * Where the caption block sits. `align` is the ASS numpad alignment and
  * `margin` scales the base edge margin, which is how the raised variants lift
@@ -162,7 +162,33 @@ const PRESETS: Record<CaptionPreset, PresetStyle> = {
   },
 };
 
-const SIZE_SCALE: Record<CaptionSize, number> = { small: 0.7, medium: 1, large: 1.5 };
+/**
+ * Caption height as a multiple of the medium default.
+ *
+ * The three original steps keep the numbers they always had, so a stored
+ * setting still means what it meant. The two new ones extend the range rather
+ * than re-space it.
+ */
+const SIZE_SCALE: Record<CaptionSize, number> = {
+  xsmall: 0.55,
+  small: 0.7,
+  medium: 1,
+  large: 1.5,
+  xlarge: 2,
+};
+
+/**
+ * Absolute bounds on the computed font size, in frame pixels.
+ *
+ * Wide, because a tight clamp silently collapses the steps into each other:
+ * the old floor of 18 made small and medium identical on anything under about
+ * 500px tall, and the old ceiling of 120 cut large down to a fifth over medium
+ * on a 1080x1920 portrait video — the shape most videos arrive as. The bounds
+ * are still here to keep an unusual frame from producing an absurd size, not
+ * to shape the scale.
+ */
+const MIN_FONT_PX = 14;
+const MAX_FONT_PX = 240;
 
 /** Outline thickness as a fraction of the font size. */
 const OUTLINE_RATIO: Record<OutlineWeight, number> = { none: 0, thin: 0.04, med: 0.08, heavy: 0.13 };
@@ -231,7 +257,11 @@ export function buildAss(segments: Segment[], opts: AssOptions): string {
   const position = opts.position ?? 'bottom';
 
   const scale = SIZE_SCALE[opts.size ?? 'medium'] ?? 1;
-  const fontSize = clamp(Math.round(height * 0.045 * scale * (rtl ? RTL_SIZE_BUMP : 1)), 18, 120);
+  const fontSize = clamp(
+    Math.round(height * 0.045 * scale * (rtl ? RTL_SIZE_BUMP : 1)),
+    MIN_FONT_PX,
+    MAX_FONT_PX,
+  );
 
   const outline = round2(fontSize * OUTLINE_RATIO[style.outline]);
   const shadow = round2(fontSize * 0.035 * style.shadow);

@@ -33,6 +33,15 @@ Three layers, each with a different billing model:
 
 Pipeline: fetch → extract audio → transcribe (chunked) → translate → burn → deliver → offer edit.
 
+With 🧾 **Confirm settings** on — the default — nothing starts until the user approves. Every
+video, uploaded or linked, opens on a card listing what it is about to be captioned with; the
+draft rides on the buttons as an `encodeSettings` code and is handed to the Workflow in
+`params.settings`, so a change there applies to that video and is never written back to KV. A
+link's preview and its approval are the *same* card — `sendOffer` posts the settings card with
+the platform/quality line above it rather than making the user confirm twice. Turning the field
+off restores the old behaviour: an upload starts on arrival, a link gets the plain ✅ Caption it
+offer.
+
 With 📝 **Check script** on, the run *ends* after translate and posts the script as an `.srt` with
 a ✅ Burn it card. The burn is then the same `restyle` re-run the ♻️ Apply button has always
 queued, over the cues already in R2 — no Workflow instance is held open waiting for a tap, and
@@ -96,6 +105,15 @@ the change, so a font change costs one encode and a translator change costs no t
   stripped, so a report of boxes is diagnosed from `wrangler tail` rather than a screenshot — an
   empty log means the text was clean and the font is at fault, which `/debug/fonts` and a re-burn
   with the other font will confirm.
+- **Option lists inside `MENUS` are append-only too, not just `CODE_FIELDS`.** `encodeSettings`
+  indexes `MENUS[field].options`, so a value inserted anywhere but the end re-points every button
+  the previous deploy minted. `layout` is how a menu still reads in a sensible order — 📍 Position
+  uses it for its grid, and 🔠 Size for the two extra steps appended after `large`.
+- **The font-size clamp is a guard rail, not part of the scale.** `SIZE_SCALE` is multiplied into
+  `height * 0.045`, then clamped: the old bounds of 18–120 px silently collapsed the steps into
+  each other, making small and medium identical below ~500 px tall and large barely a fifth over
+  medium on a 1080×1920 portrait video, which is the shape most videos arrive as. `MIN_FONT_PX` /
+  `MAX_FONT_PX` are deliberately wide so the steps stay the steps.
 - **A settings field that cannot change an existing video belongs in `CHAT_ONLY`.** `MENUS` drives
   both menus, and `MenuScope.fields` is what narrows the per-video card to `EDIT_FIELDS` —
   reviewing a script is meaningless on a card posted after the burn.
