@@ -1,4 +1,5 @@
 import {
+  EDIT_FIELDS,
   MENUS,
   decodeSettings,
   defaults,
@@ -6,10 +7,11 @@ import {
   type CaptionSettings,
   type SettingsField,
 } from '../captions/settings';
+import { sanitize } from '../captions/text';
 import { loadCues, purgeAssets, saveCues } from '../media/assets';
 import { fieldKeyboard, readChoice, rootKeyboard, shortLabel, summary, type MenuScope } from './menu';
 import { escapeHtml, telegram, type InlineKeyboard } from './telegram';
-import type { CaptionJob, Env, Segment } from '../types';
+import type { CaptionJob, Env, Segment, StoredCues } from '../types';
 
 /**
  * Re-running one delivered video.
@@ -41,6 +43,7 @@ import type { CaptionJob, Env, Segment } from '../types';
  *   em:<token>:<code>:<field>     open one field's options ('root' for the top)
  *   es:<token>:<code>:<field>     <code> already carries the new value
  *   eg:<token>:<code>             burn it again with this draft
+ *   ed:<token>:<code>             send the whole script as an .srt file
  *   et:<token>:<code>             list the cues and start taking corrections
  *   ef:<token>:<code>             burn the corrections
  *   er:<token>:<code>             translate a corrected transcript, then burn
@@ -87,7 +90,7 @@ interface EditSession {
 }
 
 export function isEditCallback(data: string): boolean {
-  return /^e[msgxtfr]?:/.test(data);
+  return /^e[msgxtfrd]?:/.test(data);
 }
 
 /** SRT form — `00:01:02,400` — the shape people already know from subtitles. */
@@ -137,7 +140,7 @@ const unmark = (line: string) => line.replace(/^(?:🗣|💬)️?\s*/u, '').trim
  * Pasted text arrives with whatever spacing the copy picked up, and doubled
  * spaces in a cue short enough to skip `resegment` are burned in as they are.
  */
-const tidy = (text: string) => text.replace(/\s+/g, ' ').trim();
+const tidy = (text: string) => sanitize(text).replace(/\s+/g, ' ').trim();
 
 /**
  * What a block's text is replaced with to drop the line entirely.
@@ -173,10 +176,18 @@ interface Correction {
  */
 export function parseCorrections(text: string): Correction[] {
   const out: Correction[] = [];
+  const lines = text.split('\n');
   let current: Correction | null = null;
   let field: 'source' | 'target' | null = null;
 
-  for (const raw of text.split('\n')) {
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+
+    // An .srt numbers every cue, and blocks copied out of the exported file
+    // bring that number with them. Only skipped directly above a timestamp
+    // line, so a correction whose text is genuinely a number still lands.
+    if (/^\s*\d+\s*$/.test(raw) && BLOCK.test(lines[i + 1] ?? '')) continue;
+
     const header = BLOCK.exec(raw);
 
     if (header) {
@@ -313,6 +324,55 @@ function chunk(blocks: string[]): string[] {
   return out;
 }
 
+/**
+ * The whole script as an .srt.
+ *
+ * Both languages, because checking a translation means reading it against what
+ * was said. The 🗣/💬 marks are the same ones the ✍️ list uses, so a block
+ * copied out of this file can be corrected and sent straight back — which is
+ * also why the cues are the stored ones rather than the burned ones: the
+ * timestamps a correction is matched on are these.
+ */
+export function buildSrt(stored: StoredCues): string {
+  const source = stored.source ?? [];
+
+  const blocks = stored.segments.map((cue, index) => {
+    const said = sourceRun(source, cue)
+      .map((s) => s.text)
+      .join(' ');
+
+    return [
+      String(index + 1),
+      `${clock(cue.start)} --> ${clock(cue.end)}`,
+      ...(said ? [`${SOURCE_MARK} ${said}`] : []),
+      // Sanitised so the file shows what the burn will actually draw, not what
+      // a translator happened to emit — see `sanitize`.
+      `${TARGET_MARK} ${sanitize(cue.text)}`,
+    ].join('\n');
+  });
+
+  return `${blocks.join('\n\n')}\n`;
+}
+
+const SCRIPT_CAPTION = [
+  '📄 The script for this video.',
+  '',
+  `${SOURCE_MARK} what was said · ${TARGET_MARK} what gets burned in`,
+  '',
+  'Lines are whole sentences here — the burn splits them to your line length.',
+].join('\n');
+
+/** Send the script as a file. Returns false when there is nothing left to send. */
+async function sendScript(env: Env, chatId: number, assetJobId: string): Promise<boolean> {
+  const stored = await loadCues(env, assetJobId);
+  if (!stored || stored.segments.length === 0) return false;
+
+  await telegram(env.TELEGRAM_BOT_TOKEN).sendDocument(chatId, 'script.srt', buildSrt(stored), {
+    caption: SCRIPT_CAPTION,
+  });
+  return true;
+}
+
 const FIX_HELP = [
   '✍️ Every line in this video, with its times.',
   '',
@@ -359,6 +419,9 @@ const scopeFor = (token: string, settings: CaptionSettings): MenuScope => ({
       { text: '✖️ Close', callback_data: `ex:${token}` },
     ],
   ],
+  // 📝 Check script is a chat default, not a property of a video that has
+  // already been burned.
+  fields: EDIT_FIELDS,
 });
 
 const CARD_TITLE = '🎬 Captioned with:';
@@ -383,16 +446,9 @@ export async function sendEditCard(
 ): Promise<void> {
   const tg = telegram(env.TELEGRAM_BOT_TOKEN);
 
-  if (!env.CAPTION_SETTINGS) return;
-
-  const token = crypto.randomUUID().slice(0, 8);
-
   try {
-    await env.CAPTION_SETTINGS.put(
-      editKey(token),
-      JSON.stringify({ assetJobId, messageId, settings } satisfies EditSession),
-      { expirationTtl: EDIT_TTL_SECONDS },
-    );
+    const token = await openSession(env, { assetJobId, messageId, settings });
+    if (!token) return;
 
     const code = encodeSettings(settings);
     const keyboard: InlineKeyboard = [
@@ -400,11 +456,97 @@ export async function sendEditCard(
         { text: '✏️ Edit', callback_data: `e:${token}:${code}` },
         { text: '✍️ Fix text', callback_data: `et:${token}:${code}` },
       ],
-      [{ text: '✖️ Cancel', callback_data: `ex:${token}` }],
+      [
+        { text: '📄 Script', callback_data: `ed:${token}:${code}` },
+        { text: '✖️ Cancel', callback_data: `ex:${token}` },
+      ],
     ];
-    await tg.sendMessage(chatId, `${CARD_TITLE}\n${summary(settings)}`, messageId, keyboard);
+    await tg.sendMessage(
+      chatId,
+      `${CARD_TITLE}\n${summary(settings, EDIT_FIELDS)}`,
+      messageId,
+      keyboard,
+    );
   } catch (err) {
     console.error('[edit] could not offer a restyle:', err);
+  }
+}
+
+/**
+ * Park what a later tap needs, and hand back the token that addresses it.
+ *
+ * Written once and never rewritten, which is what keeps KV's eventual
+ * consistency out of the edit flow — the draft itself rides on the buttons.
+ */
+async function openSession(env: Env, session: EditSession): Promise<string | null> {
+  if (!env.CAPTION_SETTINGS) return null;
+  const token = crypto.randomUUID().slice(0, 8);
+  await env.CAPTION_SETTINGS.put(editKey(token), JSON.stringify(session), {
+    expirationTtl: EDIT_TTL_SECONDS,
+  });
+  return token;
+}
+
+const REVIEW_TITLE = [
+  '📝 Read it before I burn it.',
+  '',
+  'The script is in the file above. Tap ✍️ Fix text to correct a line, ✏️ Edit to change how it will look, then ✅ Burn it.',
+  '',
+  'Nothing has been encoded yet — ✖️ Discard drops the video and costs nothing.',
+].join('\n');
+
+/**
+ * Stop before the burn and put the script in front of the user.
+ *
+ * The card is the ✏️ card with one button added, because the whole flow behind
+ * it already exists: ✍️ Fix text writes corrections into the stored cues, and
+ * ✅ Burn it is the same `restyle` re-run the ♻️ Apply button has always
+ * queued. That is why the workflow can end here rather than idle waiting for a
+ * tap — a paused run would hold a Workflow instance open for as long as the
+ * user takes to read, and the burn has to reload the video into a container
+ * either way.
+ *
+ * Returns false if the script could not be sent, and the caller burns as usual
+ * rather than stranding a job nobody can finish.
+ */
+export async function sendReviewCard(
+  env: Env,
+  chatId: number,
+  messageId: number,
+  assetJobId: string,
+  settings: CaptionSettings,
+): Promise<boolean> {
+  const tg = telegram(env.TELEGRAM_BOT_TOKEN);
+
+  try {
+    const token = await openSession(env, { assetJobId, messageId, settings });
+    if (!token) return false;
+
+    const code = encodeSettings(settings);
+    if (!(await sendScript(env, chatId, assetJobId))) return false;
+
+    // The pointer the pasted-back blocks are matched against, exactly as the
+    // ✍️ button would have written it — a correction is the first thing
+    // someone reading a script wants to send, with no tap in between.
+    await env.CAPTION_SETTINGS?.put(
+      fixKey(chatId),
+      JSON.stringify({ token, code } satisfies FixSession),
+      { expirationTtl: EDIT_TTL_SECONDS },
+    ).catch(() => {});
+
+    const keyboard: InlineKeyboard = [
+      [{ text: '✅ Burn it', callback_data: `eg:${token}:${code}` }],
+      [
+        { text: '✍️ Fix text', callback_data: `et:${token}:${code}` },
+        { text: '✏️ Edit', callback_data: `e:${token}:${code}` },
+      ],
+      [{ text: '✖️ Discard', callback_data: `ex:${token}` }],
+    ];
+    await tg.sendMessage(chatId, REVIEW_TITLE, messageId, keyboard);
+    return true;
+  } catch (err) {
+    console.error('[edit] could not offer a review:', err);
+    return false;
   }
 }
 
@@ -464,7 +606,7 @@ export async function handleEditCallback(
       }
 
       const field = rawField as SettingsField;
-      if (!MENUS[field]) return void (await tg.answerCallbackQuery(callbackId));
+      if (!EDIT_FIELDS.includes(field)) return void (await tg.answerCallbackQuery(callbackId));
       await tg.answerCallbackQuery(callbackId);
       await tg.editMessageText(
         chatId,
@@ -488,6 +630,17 @@ export async function handleEditCallback(
 
     case 'eg':
       return startRestyle(env, chatId, messageId, callbackId, token, code, session, settings);
+
+    case 'ed': {
+      // Answered once, after the send, so the toast can report a failure —
+      // Telegram accepts only the first answer to a query.
+      const sent = await sendScript(env, chatId, session.assetJobId).catch((err) => {
+        console.error('[edit] could not send the script:', err);
+        return false;
+      });
+      await tg.answerCallbackQuery(callbackId, sent ? undefined : 'The text for that video is no longer stored.');
+      return;
+    }
 
     case 'et':
       return startFix(env, chatId, callbackId, token, code, session);
