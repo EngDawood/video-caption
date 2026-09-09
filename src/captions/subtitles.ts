@@ -1,4 +1,4 @@
-import { foreignCharacters, sanitize } from './text';
+import { foreignCharacters, sanitize, unexpectedCharacters } from './text';
 import type { Segment } from '../types';
 
 /**
@@ -346,11 +346,19 @@ export function buildAss(segments: Segment[], opts: AssOptions): string {
 
   // Logged, not shown: a caption that renders boxes is reported as a
   // screenshot, and this is what turns that into a codepoint in `wrangler
-  // tail`. An empty list means the text was clean and the font is at fault —
-  // check it with `/debug/fonts`.
-  const foreign = foreignCharacters(segments.map((s) => s.text).join(''));
-  if (foreign.length > 0) {
-    console.warn(`[ass] stripped characters no caption font need draw: ${foreign.join(', ')}`);
+  // tail`. Both halves matter — the first names what was removed, the second
+  // what is still not ordinary caption text and may have no glyph either.
+  // Both empty means the text is clean and the font is at fault; check it
+  // with `/debug/fonts`.
+  const raw = segments.map((s) => s.text).join('');
+  const stripped = foreignCharacters(raw);
+  if (stripped.length > 0) {
+    console.warn(`[ass] stripped characters no caption font need draw: ${stripped.join(', ')}`);
+  }
+
+  const odd = unexpectedCharacters(sanitize(raw));
+  if (odd.length > 0) {
+    console.warn(`[ass] unexpected characters left in the caption text: ${odd.join(', ')}`);
   }
 
   const events = segments
