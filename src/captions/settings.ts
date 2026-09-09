@@ -16,10 +16,26 @@ import type { Env } from '../types';
  * defaults still apply to a chat that has never opened the menu.
  */
 
-/** Fonts bundled in the container image, by internal family name. */
+/**
+ * Fonts bundled in the container image, by internal family name.
+ *
+ * Append only, like `CODE_FIELDS`: `MENUS.font` derives its options from this
+ * order and `encodeSettings` puts that index on the buttons, so reordering it
+ * changes the font on a card minted by the previous deploy.
+ *
+ * Coverage is not a detail here. Al Jazeera and Thmanyah are Arabic-only and
+ * both miss the letters Urdu needs (ٹ ڈ ڑ ں ے); Thmanyah also misses Persian's
+ * گ ک ی ژ ہ and the Persian digits. Noto Naskh Arabic carries the whole Arabic
+ * block plus both supplements, so it is the one that can serve every RTL
+ * target on the menu.
+ */
 export const FONTS = {
   aljazeera: { label: 'Al Jazeera', family: 'Al Jazeera', hasBold: true },
   thmanyah: { label: 'Thmanyah Serif', family: 'thmanyah serif display', hasBold: false },
+  // A variable font with a 400–700 weight axis. libass renders the default
+  // instance and cannot pick 700, so bold stays off rather than being
+  // synthesised — which smears Arabic letterforms.
+  noto: { label: 'Noto Naskh Arabic', family: 'Noto Naskh Arabic', hasBold: false },
 } as const;
 
 export type FontId = keyof typeof FONTS;

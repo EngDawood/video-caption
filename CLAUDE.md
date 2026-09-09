@@ -92,41 +92,31 @@ the change, so a font change costs one encode and a translator change costs no t
   Llama leaks stray tokens from other languages (a Chinese 几乎 landed mid-Arabic), and
   `translateText` used to retry only on a throw or an empty string, so anything else was burned
   in. A rejected answer is still kept over untranslated source text if the retry fails too.
-- **Boxes inside Arabic words are the font failing on a character, not a bidi bug.** libass hands
-  the string to HarfBuzz as it stands, so anything the font has no glyph for is drawn as `.notdef`.
-  The two culprits worth removing are bidi/joining controls a translator leaks in (`buildAss`
-  already wraps each RTL line in its own RLE/PDF pair, so an extra RLM adds nothing) and Arabic
-  **presentation forms** — a model answering with ﻻ (U+FEFB) instead of the canonical pair لا has
-  produced text only a font shipping Presentation Forms-B can draw, and most Arabic fonts carry
-  that ligature as a GSUB rule over the canonical letters instead. `sanitize` in
-  `src/captions/text.ts` removes the first and NFKC-normalises the second, applied where text is
-  produced *and* inside `escapeAss` as the backstop for cues stored before it existed. U+200C is
-  deliberately kept: Persian and Urdu spell words with it. `buildAss` logs every codepoint it
-  stripped, so a report of boxes is diagnosed from `wrangler tail` rather than a screenshot — an
-  empty log means the text was clean and the font is at fault, which `/debug/fonts` and a re-burn
-  with the other font will confirm.
-- **A BorderStyle-3 box is sized from `Outline`, so `Outline: 0` draws no box at all.** This is
-  what made 🎨 Hormozi render as bare yellow text and 🎨 YouTube as bare white — both ship
-  `outline: 'none'` — with 🎞 Background = box or solid powerless to put it back, because those
-  branches set the colour and never the width. `applyOverrides` now guards it once at the end for
-  every path. Verified by rendering all 60 preset × background × colour combinations through real
-  ffmpeg+libass and histogramming the caption band; not the container's own libass build, so it
-  is strong evidence rather than proof.
-- **The backdrop follows the text colour, not the preset.** Every preset ships a black outline,
-  box and shadow. Under ⚫ Black text that is unreadable in every combination — the outline fills
-  the letter counters and the box swallows the text whole (measured 1.0:1 to 1.6:1 contrast). The
-  `light` flag on `TEXT_COLORS` is what `backdropFor` flips on; adding a colour means setting it.
-- **A shadow under a box is a second, offset box.** Two 75% blacks stack to 94%, so 'Translucent
-  box' was not translucent on the presets that carry a shadow. The box branches zero it.
-- **Option lists inside `MENUS` are append-only too, not just `CODE_FIELDS`.** `encodeSettings`
-  indexes `MENUS[field].options`, so a value inserted anywhere but the end re-points every button
-  the previous deploy minted. `layout` is how a menu still reads in a sensible order — 📍 Position
-  uses it for its grid, and 🔠 Size for the two extra steps appended after `large`.
-- **The font-size clamp is a guard rail, not part of the scale.** `SIZE_SCALE` is multiplied into
-  `height * 0.045`, then clamped: the old bounds of 18–120 px silently collapsed the steps into
-  each other, making small and medium identical below ~500 px tall and large barely a fifth over
-  medium on a 1080×1920 portrait video, which is the shape most videos arrive as. `MIN_FONT_PX` /
-  `MAX_FONT_PX` are deliberately wide so the steps stay the steps.
+- **Boxes inside Arabic words are a character the font cannot draw, not a bidi bug.** libass hands
+  the string to HarfBuzz as it stands, so anything with no glyph is drawn as `.notdef` — a box on
+  Al Jazeera (its `.notdef` is a rectangle), a blank gap on Thmanyah (CFF, empty `.notdef`). Three
+  sources, all handled by `sanitize` in `src/captions/text.ts`:
+  **U+FFFD**, which is what a UTF-8 decoder leaves where bytes were malformed. The lam-alef
+  ligature U+FEFB encodes as `EF BB BB`; lose a byte and the decode yields `�لا` — one box
+  immediately before every لا, which is exactly how this was first reported. It looks like nothing
+  in a paste, so it survives every eyeball check.
+  **Arabic presentation forms** (U+FB50–U+FDFF, U+FE70–U+FEFF), the deprecated legacy block. Only
+  a font shipping it can draw them and no font ships it whole — Al Jazeera has 125/144 of Pres-B,
+  Thmanyah 89/144 and none of the isolated forms. NFKC on just those characters restores the
+  canonical letters, which every Arabic font shapes through its own GSUB.
+  **Invisible formatting characters** — the whole `Cf` category, since `buildAss` already wraps
+  each RTL line in its own RLE/PDF pair and anything else is pure risk. U+200C is the exception:
+  Persian and Urdu spell words with it.
+  Applied where text is produced *and* inside `escapeAss` as the backstop for cues stored in R2
+  before it existed. `buildAss` then logs two censuses: `foreignCharacters` names what was
+  stripped, and `unexpectedCharacters` names what survived and is still not ordinary caption text
+  — that second one is the half that matters, because a character nobody anticipated would
+  otherwise leave the log empty and the video full of boxes.
+- **Font coverage is a per-language decision, not a style one.** Al Jazeera and Thmanyah are
+  Arabic-only: both miss ٹ ڈ ڑ ں ے, so Urdu breaks on either, and Thmanyah also misses گ ک ی ژ ہ
+  and the Persian digits. Noto Naskh Arabic carries the whole Arabic block plus both supplements.
+  `FONTS` in `settings.ts` is append-only for the same reason as `CODE_FIELDS` — `MENUS.font`
+  indexes it onto the buttons.
 - **A settings field that cannot change an existing video belongs in `CHAT_ONLY`.** `MENUS` drives
   both menus, and `MenuScope.fields` is what narrows the per-video card to `EDIT_FIELDS` —
   reviewing a script is meaningless on a card posted after the burn.
