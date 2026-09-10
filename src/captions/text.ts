@@ -3,7 +3,7 @@
  *
  * libass hands the caption string to HarfBuzz exactly as it stands, so a
  * character the font has no glyph for is drawn as `.notdef` — the hollow box
- * that reads as a "?" wedged inside a word. Two sources of that are worth
+ * that reads as a "?" wedged inside a word. Three sources of that are worth
  * removing before the burn rather than after someone has watched the video:
  *
  * - **Bidi and joining controls.** `buildAss` already wraps every RTL line in
@@ -17,6 +17,14 @@
  *   they carry the ligature as a GSUB rule over the canonical letters, which is
  *   what HarfBuzz expects to apply. NFKC on just those characters puts the
  *   canonical letters back and leaves the rest of the line alone.
+ * - **Anything that is not well-formed UTF-16.** A lone surrogate is invisible
+ *   in this file's own terms — it is not a formatting character and not a
+ *   presentation form — but `putSubtitles` hands the finished ASS to the
+ *   container as a `fetch` body, and encoding a string to UTF-8 rewrites every
+ *   unpaired surrogate as U+FFFD. So the replacement character is *born after*
+ *   every sanitising pass, in the one step that has no text handling in it at
+ *   all, which is why stripping U+FFFD here could never have caught it. The
+ *   only place to stop it is before the encode, on the surrogate itself.
  *
  * Applied where text is produced (`clean`, `translateSegments`, a pasted-back
  * correction) and again inside `escapeAss`, which is the one point every
@@ -25,18 +33,25 @@
  */
 
 /**
- * Invisible formatting characters and the two replacement characters.
+ * Everything in the `Other` category, plus the two replacement characters.
  *
- * The whole `Cf` category rather than a hand-picked list, because the ones that
- * matter are exactly the ones nobody thinks to list: U+2066 isolates, U+0600
- * number sign, U+06DD end of ayah. U+200C is the single exception — Persian and
- * Urdu spell words with it.
+ * `\p{C}` rather than a hand-picked list, because the ones that matter are
+ * exactly the ones nobody thinks to list. `Cf` covers the isolates, U+0600 and
+ * U+06DD; `Cs` covers a lone surrogate, which is the one that survived the
+ * previous version of this file (see the transport note above); `Co` and `Cn`
+ * cover private-use and unassigned codepoints, which by definition no font
+ * carries. Nothing in `Other` is ever part of a caption.
  *
- * U+FFFD is not a formatting character at all but belongs here for the same
- * reason: it is what a decoder leaves behind when bytes did not form valid
- * UTF-8, it carries no meaning, and no caption font draws it.
+ * The exceptions are spelled out in the lookahead: U+200C because Persian and
+ * Urdu spell words with it, and the whitespace `Cc` characters because
+ * `refitSegments` wraps lines with `\n` and `escapeAss` turns those into ASS
+ * line breaks after this runs.
+ *
+ * U+FFFD and U+FFFC are `So`, not `Other`, and are named explicitly: U+FFFD is
+ * what a decoder leaves where bytes did not form valid UTF-8, it carries no
+ * meaning, and no caption font draws it.
  */
-const CONTROLS = /(?!\u200C)[\p{Cf}\u00AD\uFFFC\uFFFD]/u;
+const CONTROLS = /(?![\u200C\n\r\t])[\p{C}\u00AD\uFFFC\uFFFD]/u;
 
 /** Arabic Presentation Forms-A and -B. U+FEFF is a control and is stripped first. */
 const PRESENTATION = /[\uFB50-\uFDFF\uFE70-\uFEFF]/u;

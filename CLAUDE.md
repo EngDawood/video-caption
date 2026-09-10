@@ -94,19 +94,25 @@ the change, so a font change costs one encode and a translator change costs no t
   in. A rejected answer is still kept over untranslated source text if the retry fails too.
 - **Boxes inside Arabic words are a character the font cannot draw, not a bidi bug.** libass hands
   the string to HarfBuzz as it stands, so anything with no glyph is drawn as `.notdef` — a box on
-  Al Jazeera (its `.notdef` is a rectangle), a blank gap on Thmanyah (CFF, empty `.notdef`). Three
+  Al Jazeera (its `.notdef` is a rectangle), a blank gap on Thmanyah (CFF, empty `.notdef`). Four
   sources, all handled by `sanitize` in `src/captions/text.ts`:
-  **U+FFFD**, which is what a UTF-8 decoder leaves where bytes were malformed. The lam-alef
-  ligature U+FEFB encodes as `EF BB BB`; lose a byte and the decode yields `�لا` — one box
-  immediately before every لا, which is exactly how this was first reported. It looks like nothing
-  in a paste, so it survives every eyeball check.
+  **U+FFFD**, which is what a UTF-8 decoder leaves where bytes were malformed. It looks like
+  nothing in a paste, so it survives every eyeball check.
+  **A lone surrogate**, which is the same box arriving by a route stripping U+FFFD cannot close.
+  It is not a formatting character and not a presentation form, so every sanitising pass waves it
+  through; then `putSubtitles` hands the finished ASS to the container as a `fetch` body, and
+  encoding a string to UTF-8 rewrites each unpaired surrogate as U+FFFD. The replacement character
+  is therefore *born after* the last stage that touches text, in a step that has no text handling
+  in it at all. `\p{Cs}` at the source is the only place to stop it — which is why the class is now
+  the whole of `\p{C}` rather than `Cf` alone, with U+200C and the whitespace controls exempted so
+  ZWNJ spelling and `refitSegments`' line breaks survive.
   **Arabic presentation forms** (U+FB50–U+FDFF, U+FE70–U+FEFF), the deprecated legacy block. Only
   a font shipping it can draw them and no font ships it whole — Al Jazeera has 125/144 of Pres-B,
   Thmanyah 89/144 and none of the isolated forms. NFKC on just those characters restores the
   canonical letters, which every Arabic font shapes through its own GSUB.
-  **Invisible formatting characters** — the whole `Cf` category, since `buildAss` already wraps
-  each RTL line in its own RLE/PDF pair and anything else is pure risk. U+200C is the exception:
-  Persian and Urdu spell words with it.
+  **Invisible formatting characters** — all of `Cf`, since `buildAss` already wraps each RTL line
+  in its own RLE/PDF pair and anything else is pure risk, and with them `Co` and `Cn`, which no
+  font carries by definition. U+200C is the exception: Persian and Urdu spell words with it.
   Applied where text is produced *and* inside `escapeAss` as the backstop for cues stored in R2
   before it existed. `buildAss` then logs two censuses: `foreignCharacters` names what was
   stripped, and `unexpectedCharacters` names what survived and is still not ordinary caption text
