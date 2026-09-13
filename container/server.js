@@ -11,6 +11,7 @@
  *   GET    /job/audio?start=&dur=&lead=   -> mp3 slice of the extracted audio
  *   PUT    /job/subs    ASS text          -> { ok: true }
  *   POST   /job/burn                      -> burned-in mp4 bytes
+ *   GET    /job/preview?at=              -> one burned-in jpeg frame near `at` seconds
  *   DELETE /job                           -> { ok: true }
  *   GET    /health                        -> { ok, ffmpeg, subtitlesFilter }
  *   GET    /fonts                         -> font families libass can resolve
@@ -241,6 +242,37 @@ async function handleBurn(res, url) {
   await sendFile(res, OUTPUT, 'video/mp4');
 }
 
+/**
+ * One frame, with the stored subtitles burned onto it — a cheap way to see
+ * how a caption will actually look before paying for a full encode.
+ *
+ * `-ss` goes after `-i` (output seeking) rather than before it: decoding from
+ * the start keeps the frame's real presentation timestamp, which is what the
+ * `subtitles` filter uses to pick which cue is active. Input-side seeking can
+ * shift that timestamp, and the wrong cue — or none — would render. Slower,
+ * but a single frame near the start of a video is not where that cost shows.
+ */
+async function handlePreview(res, url) {
+  if (!fs.existsSync(INPUT)) return json(res, 409, { error: 'no_video' });
+  if (!fs.existsSync(SUBS)) return json(res, 409, { error: 'no_subtitles' });
+
+  const at = Math.max(0, Number(url.searchParams.get('at') || 0));
+  const preview = path.join(WORK, 'preview.jpg');
+
+  await ffmpeg([
+    '-i', 'input.bin',
+    '-ss', String(at),
+    '-an',
+    '-vf', `subtitles=subs.ass:fontsdir=${FONTS_DIR}`,
+    '-frames:v', '1',
+    '-q:v', '3',
+    preview,
+  ]);
+
+  await sendFile(res, preview, 'image/jpeg');
+  await fsp.rm(preview, { force: true });
+}
+
 async function handleFonts(res) {
   const families = await run('fc-list', [':', 'family'], { cwd: '/' });
   const list = [...new Set(families.stdout.split('\n').flatMap((l) => l.split(',')).map((s) => s.trim()).filter(Boolean))].sort();
@@ -277,6 +309,8 @@ const server = http.createServer(async (req, res) => {
         return await handleSubs(req, res);
       case 'POST /job/burn':
         return await handleBurn(res, url);
+      case 'GET /job/preview':
+        return await handlePreview(res, url);
       case 'DELETE /job':
         await resetWorkdir();
         return json(res, 200, { ok: true });

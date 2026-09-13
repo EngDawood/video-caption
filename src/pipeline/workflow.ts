@@ -10,8 +10,8 @@ import { refitSegments, transcribeChunk, translateSegments } from './ai';
 import { fetchMedia, maxSourceBytes, resolveVideo } from '../media/download';
 import { assetKeys } from '../media/assets';
 import { ffmpegFor } from '../media/ffmpeg';
-import { FONTS, isRtlLang, loadSettings, type CaptionSettings } from '../captions/settings';
-import { buildAss } from '../captions/subtitles';
+import { loadSettings, type CaptionSettings } from '../captions/settings';
+import { buildAssForSettings } from '../captions/subtitles';
 import { sendEditCard, sendReviewCard } from '../bot/edit';
 import { shortLabel } from '../bot/menu';
 import { cancelKey, cancelKeyboard } from '../bot/jobs';
@@ -233,21 +233,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
       // 6. Burn the Arabic in.
       await step.do('burn-subtitles', longStep('10 minutes'), async () => {
         await say('⏳ Burning captions into the video…');
-        const font = FONTS[settings.font];
-
-        const ass = buildAss(refitSegments(cues, Number(settings.chars)), {
-          font: font.family,
-          width: meta.width ?? 1280,
-          height: meta.height ?? 720,
-          rtl: isRtlLang(settings.targetLang),
-          preset: settings.preset,
-          size: settings.size,
-          position: settings.position,
-          color: settings.color,
-          background: settings.background,
-          // Per-font, not per-deployment: only Al Jazeera ships a real bold.
-          allowBold: font.hasBold,
-        });
+        const ass = buildAssForSettings(refitSegments(cues, Number(settings.chars)), settings, meta);
 
         // Both calls sit inside the retry: re-pushing the video wipes the
         // container's work directory, taking the subtitle file with it.

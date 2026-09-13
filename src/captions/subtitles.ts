@@ -1,5 +1,6 @@
 import { foreignCharacters, sanitize, unexpectedCharacters } from './text';
-import type { Segment } from '../types';
+import { FONTS, isRtlLang, type CaptionSettings } from './settings';
+import type { Segment, VideoMeta } from '../types';
 
 /**
  * ASS subtitle generation for hard-burn via libass.
@@ -373,6 +374,32 @@ export function buildAss(segments: Segment[], opts: AssOptions): string {
     .join('\n');
 
   return `${header}\n${events}\n`;
+}
+
+/**
+ * `buildAss` from a chat's or a draft's `CaptionSettings` rather than the raw
+ * `AssOptions` it takes — the font-family lookup and the RTL-from-target-lang
+ * decision are the same two steps everywhere a burn or a preview needs an ASS
+ * file, so both call this instead of repeating them.
+ */
+export function buildAssForSettings(
+  segments: Segment[],
+  settings: CaptionSettings,
+  meta: Pick<VideoMeta, 'width' | 'height'>,
+): string {
+  const font = FONTS[settings.font];
+  return buildAss(segments, {
+    font: font.family,
+    width: meta.width ?? 1280,
+    height: meta.height ?? 720,
+    rtl: isRtlLang(settings.targetLang),
+    preset: settings.preset,
+    size: settings.size,
+    position: settings.position,
+    color: settings.color,
+    background: settings.background,
+    allowBold: font.hasBold,
+  });
 }
 
 /** ASS timestamps are H:MM:SS.cc (centiseconds, hours not zero-padded). */
