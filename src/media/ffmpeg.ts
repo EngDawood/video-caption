@@ -58,6 +58,12 @@ export function ffmpegFor(env: Env, jobId: string) {
       return (await unwrap(res, 'burn')).arrayBuffer();
     },
 
+    /** One jpeg frame near `at` seconds, with the stored subtitles burned in. */
+    async previewFrame(at: number): Promise<ArrayBuffer> {
+      const res = await stub.fetch(`${BASE}/job/preview?at=${encodeURIComponent(String(at))}`);
+      return (await unwrap(res, 'preview')).arrayBuffer();
+    },
+
     /**
      * Clear the job directory and stop the instance.
      *

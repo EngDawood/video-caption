@@ -8,7 +8,10 @@ import {
   type SettingsField,
 } from '../captions/settings';
 import { sanitize } from '../captions/text';
-import { loadCues, purgeAssets, saveCues } from '../media/assets';
+import { buildAssForSettings } from '../captions/subtitles';
+import { refitSegments } from '../pipeline/ai';
+import { assetKeys, loadCues, purgeAssets, saveCues } from '../media/assets';
+import { ffmpegFor } from '../media/ffmpeg';
 import { fieldKeyboard, readChoice, rootKeyboard, shortLabel, summary, type MenuScope } from './menu';
 import { escapeHtml, telegram, type InlineKeyboard } from './telegram';
 import type { CaptionJob, Env, Segment, StoredCues } from '../types';
@@ -44,6 +47,7 @@ import type { CaptionJob, Env, Segment, StoredCues } from '../types';
  *   es:<token>:<code>:<field>     <code> already carries the new value
  *   eg:<token>:<code>             burn it again with this draft
  *   ed:<token>:<code>             send the whole script as an .srt file
+ *   ep:<token>:<code>             send one burned frame near the first caption
  *   et:<token>:<code>             list the cues and start taking corrections
  *   ef:<token>:<code>             burn the corrections
  *   er:<token>:<code>             translate a corrected transcript, then burn
@@ -90,7 +94,7 @@ interface EditSession {
 }
 
 export function isEditCallback(data: string): boolean {
-  return /^e[msgxtfrd]?:/.test(data);
+  return /^e[msgxtfrdp]?:/.test(data);
 }
 
 /** SRT form — `00:01:02,400` — the shape people already know from subtitles. */
@@ -373,6 +377,61 @@ async function sendScript(env: Env, chatId: number, assetJobId: string): Promise
   return true;
 }
 
+/**
+ * Burn just the first caption onto one frame and send it — a look at how the
+ * style will actually render without paying for the full-video encode that
+ * ✅ Burn it / ♻️ Apply would run.
+ *
+ * Runs its own dedicated container instance rather than whatever the workflow
+ * used, since neither card carries the original job id and the workflow's own
+ * instance is long stopped by the time either card is on screen. Cleaned up
+ * immediately after: an idle preview container bills the same as a working
+ * one, and the next real burn re-uploads the video anyway.
+ */
+async function sendPreview(
+  env: Env,
+  chatId: number,
+  callbackId: string,
+  session: EditSession,
+  settings: CaptionSettings,
+): Promise<void> {
+  const tg = telegram(env.TELEGRAM_BOT_TOKEN);
+  const stored = await loadCues(env, session.assetJobId);
+
+  if (!stored || stored.segments.length === 0) {
+    await tg.answerCallbackQuery(callbackId, 'The text for that video is no longer stored.');
+    return;
+  }
+
+  await tg.answerCallbackQuery(callbackId, 'Rendering a preview…');
+
+  const ffmpeg = ffmpegFor(env, `preview-${session.assetJobId}`);
+  try {
+    const cues = refitSegments(stored.segments, Number(settings.chars));
+    const first = cues[0];
+    if (!first) throw new Error('no cues to preview');
+
+    const duration = stored.meta.duration || first.end;
+    const at = Math.min((first.start + first.end) / 2, Math.max(0, duration - 0.05));
+
+    const video = await env.MEDIA.get(assetKeys(session.assetJobId).input);
+    if (!video) throw new Error('video no longer stored');
+
+    await ffmpeg.uploadVideo(await video.arrayBuffer(), { skipAudio: true });
+    await ffmpeg.putSubtitles(buildAssForSettings(cues, settings, stored.meta));
+    const frame = await ffmpeg.previewFrame(at);
+
+    await tg.sendPhotoFile(chatId, frame, {
+      caption: `🖼 One frame near ${clock(at)} — not the finished video, just this style on it.`,
+    });
+  } catch (err) {
+    console.error('[edit] could not render a preview:', err);
+    await tg.sendMessage(chatId, '⚠️ Could not render a preview for that video.').catch(() => null);
+  } finally {
+    await ffmpeg.cleanup();
+  }
+}
+
 const FIX_HELP = [
   '✍️ Every line in this video, with its times.',
   '',
@@ -458,8 +517,9 @@ export async function sendEditCard(
       ],
       [
         { text: '📄 Script', callback_data: `ed:${token}:${code}` },
-        { text: '✖️ Cancel', callback_data: `ex:${token}` },
+        { text: '🖼 Preview', callback_data: `ep:${token}:${code}` },
       ],
+      [{ text: '✖️ Cancel', callback_data: `ex:${token}` }],
     ];
     await tg.sendMessage(
       chatId,
@@ -490,7 +550,7 @@ async function openSession(env: Env, session: EditSession): Promise<string | nul
 const REVIEW_TITLE = [
   '📝 Read it before I burn it.',
   '',
-  'The script is in the file above. Tap ✍️ Fix text to correct a line, ✏️ Edit to change how it will look, then ✅ Burn it.',
+  'The script is in the file above. Tap ✍️ Fix text to correct a line, ✏️ Edit to change how it will look, 🖼 Preview to see one frame with it burned in, then ✅ Burn it.',
   '',
   'Nothing has been encoded yet — ✖️ Discard drops the video and costs nothing.',
 ].join('\n');
@@ -540,7 +600,10 @@ export async function sendReviewCard(
         { text: '✍️ Fix text', callback_data: `et:${token}:${code}` },
         { text: '✏️ Edit', callback_data: `e:${token}:${code}` },
       ],
-      [{ text: '✖️ Discard', callback_data: `ex:${token}` }],
+      [
+        { text: '🖼 Preview', callback_data: `ep:${token}:${code}` },
+        { text: '✖️ Discard', callback_data: `ex:${token}` },
+      ],
     ];
     await tg.sendMessage(chatId, REVIEW_TITLE, messageId, keyboard);
     return true;
@@ -641,6 +704,9 @@ export async function handleEditCallback(
       await tg.answerCallbackQuery(callbackId, sent ? undefined : 'The text for that video is no longer stored.');
       return;
     }
+
+    case 'ep':
+      return sendPreview(env, chatId, callbackId, session, settings);
 
     case 'et':
       return startFix(env, chatId, callbackId, token, code, session);

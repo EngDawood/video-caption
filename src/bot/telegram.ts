@@ -161,6 +161,22 @@ export function telegram(token: string) {
       return res.arrayBuffer();
     },
 
+    /** Send a photo from raw bytes — the burned-frame preview, which has no URL to hand Telegram. */
+    async sendPhotoFile(chatId: number, photo: ArrayBuffer, opts: { caption?: string; replyTo?: number } = {}) {
+      const form = new FormData();
+      form.append('chat_id', String(chatId));
+      if (opts.caption) form.append('caption', opts.caption);
+      if (opts.replyTo) {
+        form.append('reply_to_message_id', String(opts.replyTo));
+        form.append('allow_sending_without_reply', 'true');
+      }
+      form.append('photo', new File([photo], 'preview.jpg', { type: 'image/jpeg' }));
+
+      const res = await fetch(`${API}/bot${token}/sendPhoto`, { method: 'POST', body: form });
+      const data = (await res.json()) as { ok: boolean; description?: string };
+      if (!data.ok) throw new Error(`telegram sendPhoto failed: ${data.description ?? res.status}`);
+    },
+
     async sendVideo(chatId: number, video: ArrayBuffer, opts: { caption?: string; replyTo?: number } = {}) {
       const form = new FormData();
       form.append('chat_id', String(chatId));
