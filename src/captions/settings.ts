@@ -25,9 +25,9 @@ import type { Env } from '../types';
  *
  * Coverage is not a detail here. Al Jazeera and Thmanyah are Arabic-only and
  * both miss the letters Urdu needs (ٹ ڈ ڑ ں ے); Thmanyah also misses Persian's
- * گ ک ی ژ ہ and the Persian digits. Noto Naskh Arabic carries the whole Arabic
- * block plus both supplements, so it is the one that can serve every RTL
- * target on the menu.
+ * گ ک ی ژ ہ and the Persian digits. Noto Naskh Arabic, Almarai and Cairo carry
+ * the whole Arabic block plus both supplements, so any of the three can serve
+ * every RTL target on the menu.
  */
 export const FONTS = {
   aljazeera: { label: 'Al Jazeera', family: 'Al Jazeera', hasBold: true },
@@ -36,6 +36,21 @@ export const FONTS = {
   // instance and cannot pick 700, so bold stays off rather than being
   // synthesised — which smears Arabic letterforms.
   noto: { label: 'Noto Naskh Arabic', family: 'Noto Naskh Arabic', hasBold: false },
+  // Same coverage as Noto, but Regular/Bold are separate static weights, so
+  // bold actually renders instead of staying off.
+  almarai: { label: 'Almarai', family: 'Almarai', hasBold: true },
+  // Ships only as a variable font; Regular/Bold here are static instances
+  // baked out of it, for the same reason Noto's bold stays off otherwise.
+  cairo: { label: 'Cairo', family: 'Cairo', hasBold: true },
+  // Internal family name is "Dubai W23 Regular", not "Dubai" — only the
+  // Regular weight was supplied, so bold stays off rather than synthesised.
+  dubai: { label: 'Dubai', family: 'Dubai W23 Regular', hasBold: false },
+  // Commercially licensed — the 75 Black weight's own name table shipped
+  // under the Roman weight's family, so its Regular/Bold no-op'd; the name
+  // table was corrected so both weights register under one family.
+  frutiger: { label: 'Frutiger Arabic', family: 'Frutiger LT Arabic', hasBold: true },
+  // Commercially licensed. Only a Regular weight was supplied.
+  neosans: { label: 'Neo Sans Arabic', family: 'Neo Sans Arabic', hasBold: false },
 } as const;
 
 export type FontId = keyof typeof FONTS;
