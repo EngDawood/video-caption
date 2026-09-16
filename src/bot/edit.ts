@@ -9,7 +9,7 @@ import {
 } from '../captions/settings';
 import { sanitize } from '../captions/text';
 import { buildAssForSettings } from '../captions/subtitles';
-import { refitSegments } from '../pipeline/ai';
+import { fitSegments } from '../pipeline/ai';
 import { assetKeys, loadCues, purgeAssets, saveCues } from '../media/assets';
 import { ffmpegFor } from '../media/ffmpeg';
 import { fieldKeyboard, readChoice, rootKeyboard, shortLabel, summary, type MenuScope } from './menu';
@@ -377,17 +377,56 @@ async function sendScript(env: Env, chatId: number, assetJobId: string): Promise
   return true;
 }
 
+const previewCaption = (at: number) =>
+  `🖼 One frame near ${clock(at)} — not the finished video, just this style on it.`;
+
 /**
- * Burn just the first caption onto one frame and send it — a look at how the
- * style will actually render without paying for the full-video encode that
- * ✅ Burn it / ♻️ Apply would run.
+ * Burn just the first caption onto one frame — a look at how the style will
+ * actually render without paying for the full-video encode that ✅ Burn it /
+ * ♻️ Apply would run.
  *
  * Runs its own dedicated container instance rather than whatever the workflow
  * used, since neither card carries the original job id and the workflow's own
  * instance is long stopped by the time either card is on screen. Cleaned up
  * immediately after: an idle preview container bills the same as a working
  * one, and the next real burn re-uploads the video anyway.
+ *
+ * The cues go through `fitSegments`, the same call the burn makes, so a
+ * preview cannot show a line length the finished video will not have.
+ *
+ * Returns null on any failure — both callers treat a missing frame as
+ * something to work around, not an error to fail the job with.
  */
+async function renderPreview(
+  env: Env,
+  assetJobId: string,
+  settings: CaptionSettings,
+  stored: StoredCues,
+): Promise<{ frame: ArrayBuffer; at: number } | null> {
+  const ffmpeg = ffmpegFor(env, `preview-${assetJobId}`);
+  try {
+    const cues = fitSegments(stored.segments, settings, stored.meta);
+    const first = cues[0];
+    if (!first) throw new Error('no cues to preview');
+
+    const duration = stored.meta.duration || first.end;
+    const at = Math.min((first.start + first.end) / 2, Math.max(0, duration - 0.05));
+
+    const video = await env.MEDIA.get(assetKeys(assetJobId).input);
+    if (!video) throw new Error('video no longer stored');
+
+    await ffmpeg.uploadVideo(await video.arrayBuffer(), { skipAudio: true });
+    await ffmpeg.putSubtitles(buildAssForSettings(cues, settings, stored.meta));
+    return { frame: await ffmpeg.previewFrame(at), at };
+  } catch (err) {
+    console.error('[edit] could not render a preview:', err);
+    return null;
+  } finally {
+    await ffmpeg.cleanup();
+  }
+}
+
+/** The 🖼 Preview button on either card. */
 async function sendPreview(
   env: Env,
   chatId: number,
@@ -404,32 +443,14 @@ async function sendPreview(
   }
 
   await tg.answerCallbackQuery(callbackId, 'Rendering a preview…');
+  const shot = await renderPreview(env, session.assetJobId, settings, stored);
 
-  const ffmpeg = ffmpegFor(env, `preview-${session.assetJobId}`);
-  try {
-    const cues = refitSegments(stored.segments, Number(settings.chars));
-    const first = cues[0];
-    if (!first) throw new Error('no cues to preview');
-
-    const duration = stored.meta.duration || first.end;
-    const at = Math.min((first.start + first.end) / 2, Math.max(0, duration - 0.05));
-
-    const video = await env.MEDIA.get(assetKeys(session.assetJobId).input);
-    if (!video) throw new Error('video no longer stored');
-
-    await ffmpeg.uploadVideo(await video.arrayBuffer(), { skipAudio: true });
-    await ffmpeg.putSubtitles(buildAssForSettings(cues, settings, stored.meta));
-    const frame = await ffmpeg.previewFrame(at);
-
-    await tg.sendPhotoFile(chatId, frame, {
-      caption: `🖼 One frame near ${clock(at)} — not the finished video, just this style on it.`,
-    });
-  } catch (err) {
-    console.error('[edit] could not render a preview:', err);
+  if (!shot) {
     await tg.sendMessage(chatId, '⚠️ Could not render a preview for that video.').catch(() => null);
-  } finally {
-    await ffmpeg.cleanup();
+    return;
   }
+
+  await tg.sendPhotoFile(chatId, shot.frame, { caption: previewCaption(shot.at) });
 }
 
 const FIX_HELP = [
@@ -547,16 +568,25 @@ async function openSession(env: Env, session: EditSession): Promise<string | nul
   return token;
 }
 
-const REVIEW_TITLE = [
-  '📝 Read it before I burn it.',
-  '',
-  'The script is in the file above. Tap ✍️ Fix text to correct a line, ✏️ Edit to change how it will look, 🖼 Preview to see one frame with it burned in, then ✅ Burn it.',
-  '',
-  'Nothing has been encoded yet — ✖️ Discard drops the video and costs nothing.',
-].join('\n');
+const reviewTitle = (script: boolean, frame: boolean) =>
+  [
+    `${script ? '📝' : '🖼'} Check it before I burn it.`,
+    '',
+    script && frame
+      ? 'Above: the whole script, and one frame with the captions burned into it.'
+      : script
+        ? 'The script is in the file above.'
+        : 'Above is one frame with the captions burned into it.',
+    '',
+    'Tap ✍️ Fix text to correct a line, ✏️ Edit to change how it will look, 🖼 Preview to render another frame, then ✅ Burn it.',
+    '',
+    'Nothing has been encoded yet — ✖️ Discard drops the video and costs nothing.',
+  ].join('\n');
 
 /**
- * Stop before the burn and put the script in front of the user.
+ * Stop before the burn and put what the chat asked for in front of the user:
+ * the script (📝 Check script), one burned frame (🖼 Check preview), or both on
+ * one card.
  *
  * The card is the ✏️ card with one button added, because the whole flow behind
  * it already exists: ✍️ Fix text writes corrections into the stored cues, and
@@ -566,8 +596,8 @@ const REVIEW_TITLE = [
  * user takes to read, and the burn has to reload the video into a container
  * either way.
  *
- * Returns false if the script could not be sent, and the caller burns as usual
- * rather than stranding a job nobody can finish.
+ * Returns false if there is nothing to show, and the caller burns as usual
+ * rather than parking a job behind a card with nothing on it.
  */
 export async function sendReviewCard(
   env: Env,
@@ -583,16 +613,41 @@ export async function sendReviewCard(
     if (!token) return false;
 
     const code = encodeSettings(settings);
-    if (!(await sendScript(env, chatId, assetJobId))) return false;
+
+    const sentScript = settings.review === 'on' && (await sendScript(env, chatId, assetJobId));
+
+    let sentFrame = false;
+    if (settings.preview === 'on') {
+      const stored = await loadCues(env, assetJobId);
+      const shot =
+        stored && stored.segments.length > 0
+          ? await renderPreview(env, assetJobId, settings, stored)
+          : null;
+
+      if (shot) {
+        await tg.sendPhotoFile(chatId, shot.frame, { caption: previewCaption(shot.at) });
+        sentFrame = true;
+      }
+    }
+
+    // Nothing to look at is nothing to approve. Both settings can ask for a
+    // gate and still land here with neither attachment — an expired video, a
+    // container that would not render — and a card with no content above it
+    // would strand a job the user cannot finish.
+    if (!sentScript && !sentFrame) return false;
 
     // The pointer the pasted-back blocks are matched against, exactly as the
     // ✍️ button would have written it — a correction is the first thing
-    // someone reading a script wants to send, with no tap in between.
-    await env.CAPTION_SETTINGS?.put(
-      fixKey(chatId),
-      JSON.stringify({ token, code } satisfies FixSession),
-      { expirationTtl: EDIT_TTL_SECONDS },
-    ).catch(() => {});
+    // someone reading a script wants to send, with no tap in between. Only
+    // worth writing when the script is actually on screen to copy from; the
+    // ✍️ button writes it for itself otherwise.
+    if (sentScript) {
+      await env.CAPTION_SETTINGS?.put(
+        fixKey(chatId),
+        JSON.stringify({ token, code } satisfies FixSession),
+        { expirationTtl: EDIT_TTL_SECONDS },
+      ).catch(() => {});
+    }
 
     const keyboard: InlineKeyboard = [
       [{ text: '✅ Burn it', callback_data: `eg:${token}:${code}` }],
@@ -605,7 +660,7 @@ export async function sendReviewCard(
         { text: '✖️ Discard', callback_data: `ex:${token}` },
       ],
     ];
-    await tg.sendMessage(chatId, REVIEW_TITLE, messageId, keyboard);
+    await tg.sendMessage(chatId, reviewTitle(sentScript, sentFrame), messageId, keyboard);
     return true;
   } catch (err) {
     console.error('[edit] could not offer a review:', err);

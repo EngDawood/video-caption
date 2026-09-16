@@ -91,9 +91,16 @@ export const POSITIONS = {
   middleRight: { label: 'Middle right', align: 6, margin: 1 },
   topLeft: { label: 'Top left', align: 7, margin: 1 },
   topRight: { label: 'Top right', align: 9, margin: 1 },
-  lowerThird: { label: 'Lower third', align: 2, margin: 4 },
-  upperThird: { label: 'Upper third', align: 8, margin: 4 },
-  lowerMiddle: { label: 'Lower middle', align: 2, margin: 6 },
+  lowerThird: { label: 'Lower third — 18% up', align: 2, margin: 4 },
+  upperThird: { label: 'Upper third — 18% down', align: 8, margin: 4 },
+  lowerMiddle: { label: 'Lower middle — 27% up', align: 2, margin: 6 },
+  // Filling in the gap between 'Bottom' and 'Centre', which was two steps
+  // wide: the whole point of the raised variants is clearing whatever the
+  // player draws over the bottom of a video, and how much that covers differs
+  // per app. The percentage in each label is the MarginV these work out to —
+  // `marginV` below is `height * 0.045 * margin`.
+  aboveBottom: { label: 'Above bottom — 9% up', align: 2, margin: 2 },
+  belowCentre: { label: 'Below centre — 36% up', align: 2, margin: 8 },
 } as const;
 
 export type CaptionPosition = keyof typeof POSITIONS;
@@ -205,6 +212,84 @@ const OUTLINE_RATIO: Record<OutlineWeight, number> = { none: 0, thin: 0.04, med:
 /** Arabic glyphs read smaller than Latin at the same point size. */
 const RTL_SIZE_BUMP = 1.15;
 
+/** Side margin as a fraction of frame width, one per edge. */
+const MARGIN_H_RATIO = 0.07;
+
+/**
+ * Caption height in frame pixels, for one size step.
+ *
+ * Pulled out of `buildAss` because 📏 Line length 'auto' has to know it: the
+ * number of characters that fit on a line is the usable width divided by the
+ * width of a glyph, and a glyph's width comes from here.
+ */
+export function fontSizeFor(height: number, size: CaptionSize | undefined, rtl: boolean): number {
+  const scale = SIZE_SCALE[size ?? 'medium'] ?? 1;
+  return clamp(
+    Math.round(height * 0.045 * scale * (rtl ? RTL_SIZE_BUMP : 1)),
+    MIN_FONT_PX,
+    MAX_FONT_PX,
+  );
+}
+
+/**
+ * Average glyph advance as a fraction of the font size.
+ *
+ * An estimate, and deliberately so: the exact answer needs the font's own
+ * metrics per character, which only libass inside the container can see. These
+ * two numbers are the mean advance over ordinary caption text — Arabic naskh
+ * sits narrower than Latin at the same point size, which is also why it gets
+ * `RTL_SIZE_BUMP` to begin with.
+ */
+const ADVANCE_RATIO = { ltr: 0.5, rtl: 0.46 };
+
+/**
+ * Bounds on the computed limit.
+ *
+ * The ceiling is the broadcast norm, not the widest line the frame can hold:
+ * a 1920x1080 frame at medium fits about 64 characters across, and a
+ * 64-character caption is past what anyone reads comfortably however well it
+ * fits. So 'auto' only ever shortens — a landscape video lands on the same 42
+ * a person would have picked, and a portrait one drops to what its width can
+ * actually carry.
+ *
+ * The floor is there because the alternative is worse: at 🔠 Extra large on a
+ * portrait frame only about eleven characters fit, and a limit that low cuts
+ * captions to one word each. Below the floor the line wraps, which is the
+ * lesser fault.
+ */
+const AUTO_CHARS_MIN = 16;
+const AUTO_CHARS_MAX = 42;
+
+/**
+ * The longest line that stays on ONE line in this frame, at these settings.
+ *
+ * This is what 📏 Line length 'auto' resolves to. libass wraps a line too wide
+ * for the frame rather than clipping it, so the failure a fixed limit produces
+ * is silent: 42 characters is the broadcast norm for a 16:9 frame and roughly
+ * double what fits across a 9:16 phone video at the same size — which is the
+ * shape most videos arrive as, and where every cue quietly became two or three
+ * stacked lines. Sizing the limit from the frame instead means one cue is one
+ * line, whatever the video and whatever 🔠 Size is set to.
+ *
+ * What it works out to, for reference: 16:9 at 🔠 Medium stays on 42, 9:16 at
+ * Medium drops to 20, and 9:16 at Large to the 16-character floor.
+ */
+export function charLimitFor(
+  settings: CaptionSettings,
+  meta: Pick<VideoMeta, 'width' | 'height'>,
+): number {
+  if (settings.chars !== 'auto') return Number(settings.chars) || 42;
+
+  const width = meta.width || 1280;
+  const height = meta.height || 720;
+  const rtl = isRtlLang(settings.targetLang);
+  const fontSize = fontSizeFor(height, settings.size, rtl);
+  const usable = width * (1 - 2 * MARGIN_H_RATIO);
+  const advance = fontSize * (rtl ? ADVANCE_RATIO.rtl : ADVANCE_RATIO.ltr);
+
+  return clamp(Math.floor(usable / advance), AUTO_CHARS_MIN, AUTO_CHARS_MAX);
+}
+
 export interface AssOptions {
   font: string;
   width: number;
@@ -301,18 +386,13 @@ export function buildAss(segments: Segment[], opts: AssOptions): string {
   const style = applyOverrides(PRESETS[opts.preset ?? 'clean'] ?? PRESETS.clean, opts);
   const position = opts.position ?? 'bottom';
 
-  const scale = SIZE_SCALE[opts.size ?? 'medium'] ?? 1;
-  const fontSize = clamp(
-    Math.round(height * 0.045 * scale * (rtl ? RTL_SIZE_BUMP : 1)),
-    MIN_FONT_PX,
-    MAX_FONT_PX,
-  );
+  const fontSize = fontSizeFor(height, opts.size, rtl);
 
   const outline = round2(fontSize * OUTLINE_RATIO[style.outline]);
   const shadow = round2(fontSize * 0.035 * style.shadow);
   const place = POSITIONS[position] ?? POSITIONS.bottom;
   const marginV = Math.round(height * 0.045 * place.margin);
-  const marginH = Math.round(width * 0.07);
+  const marginH = Math.round(width * MARGIN_H_RATIO);
   const bold = style.bold && opts.allowBold ? -1 : 0;
 
   const header = [
