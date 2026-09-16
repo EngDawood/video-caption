@@ -1,6 +1,7 @@
 import { NonRetryableError } from 'cloudflare:workflows';
 import { ApiJobError, jobStatus, submitJob } from './api/jobs';
 import { getOutput } from './api/output';
+import { handleMcp } from './mcp/server';
 import { extractSourceUrl, maxSourceBytes } from './media/download';
 import { handleEditCallback, handleTextCorrection, isEditCallback } from './bot/edit';
 import {
@@ -140,10 +141,22 @@ export default {
       return new Response('ok');
     }
 
-    // The external REST API. Unlike ADMIN_CHAT_ID this fails CLOSED: an
-    // unset API_KEY disables every route below rather than opening them.
+    // The external REST API and its MCP twin. Unlike ADMIN_CHAT_ID this fails
+    // CLOSED: an unset API_KEY disables every route below rather than opening them.
+    if (url.pathname === '/mcp') {
+      // ?token= because ChatGPT cannot send custom headers — only OAuth or no auth.
+      const key = request.headers.get('x-api-key') ?? url.searchParams.get('token');
+      if (!env.API_KEY || key !== env.API_KEY) {
+        return new Response('forbidden', { status: 403 });
+      }
+      return handleMcp(request, env, ctx);
+    }
+
     if (url.pathname.startsWith('/api/jobs')) {
-      if (!env.API_KEY || request.headers.get('x-api-key') !== env.API_KEY) {
+      // The download is also a link someone opens in a browser, which cannot set a header.
+      const isDownload = request.method === 'GET' && /^\/api\/jobs\/[^/]+\/output$/.test(url.pathname);
+      const key = request.headers.get('x-api-key') ?? (isDownload ? url.searchParams.get('token') : null);
+      if (!env.API_KEY || key !== env.API_KEY) {
         return new Response('forbidden', { status: 403 });
       }
       return handleApiJobs(request, env, url);
