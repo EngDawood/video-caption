@@ -37,9 +37,16 @@ function parseSettings(env: Env, input: unknown): CaptionSettings {
   }
 
   // 📝 Check script pauses the run on a Telegram card with an .srt attached —
-  // there is nothing to pause on over the API yet.
-  if (settings.review === 'on') {
-    throw new ApiJobError('settings.review "on" is not supported over the API yet — set it to "off"');
+  // there is nothing to pause on over the API yet. 🖼 Check preview is the
+  // same card, so it is rejected here rather than silently ignored: the
+  // webhook channel declines the gate and burns straight through, and a client
+  // that asked to approve a frame first would never learn it did not.
+  for (const field of ['review', 'preview'] as const) {
+    if (settings[field] === 'on') {
+      throw new ApiJobError(
+        `settings.${field} "on" is not supported over the API yet — set it to "off"`,
+      );
+    }
   }
 
   return settings;

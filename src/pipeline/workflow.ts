@@ -6,7 +6,7 @@ import {
   type WorkflowStepConfig,
   type WorkflowTimeoutDuration,
 } from 'cloudflare:workers';
-import { refitSegments, transcribeChunk, translateSegments } from './ai';
+import { fitSegments, transcribeChunk, translateSegments } from './ai';
 import { channelFor } from './channel';
 import { fetchMedia, maxSourceBytes, resolveVideo } from '../media/download';
 import { assetKeys } from '../media/assets';
@@ -189,7 +189,8 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
 
         cues = translated;
 
-        // 4b. Stop here when the chat asked to check the script first.
+        // 4b. Stop here when the chat asked to check something first — the
+        //     script (📝), one burned frame (🖼), or both on one card.
         //
         //     Everything the burn needs is in R2 now, and the container was
         //     released before the translation, so ending the run costs
@@ -198,15 +199,23 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
         //     inside the workflow instead would hold an instance open for as
         //     long as someone takes to read.
         //
+        //     The frame is rendered by the card itself, in a container of its
+        //     own — which is why this is a long step, and why the workflow's
+        //     own container stays stopped through it.
+        //
         //     A card that cannot be posted falls through to the burn rather
         //     than leaving a job nobody can finish.
-        if (settings.review === 'on') {
-          const offered = await step.do('offer-review', async () => {
+        if (settings.review === 'on' || settings.preview === 'on') {
+          const offered = await step.do('offer-review', longStep('5 minutes'), async () => {
             return channel.offerReview(assetJobId, settings);
           });
 
           if (offered) {
-            await settle('📝 Waiting for you to check the script.');
+            await settle(
+              settings.review === 'on'
+                ? '📝 Waiting for you to check the script.'
+                : '🖼 Waiting for you to check the preview.',
+            );
             await ffmpeg.cleanup();
             await this.forgetCancelToken(event.payload.cancelToken);
             return;
@@ -228,7 +237,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
       // 6. Burn the Arabic in.
       await step.do('burn-subtitles', longStep('10 minutes'), async () => {
         await say('⏳ Burning captions into the video…');
-        const ass = buildAssForSettings(refitSegments(cues, Number(settings.chars)), settings, meta);
+        const ass = buildAssForSettings(fitSegments(cues, settings, meta), settings, meta);
 
         // Both calls sit inside the retry: re-pushing the video wipes the
         // container's work directory, taking the subtitle file with it.

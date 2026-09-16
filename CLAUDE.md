@@ -47,6 +47,12 @@ a ✅ Burn it card. The burn is then the same `restyle` re-run the ♻️ Apply 
 queued, over the cues already in R2 — no Workflow instance is held open waiting for a tap, and
 the container had already been released before the translation anyway.
 
+🖼 **Check preview** stops at the same point on the same card, with one burned frame in place of
+the `.srt`; both on posts both above one card. The frame is rendered by `renderPreview` in
+`src/bot/edit.ts`, in a container of its own (`preview-<jobId>`), which is why `offer-review` is a
+long step — the workflow's own container stays stopped through it. Off by default: it costs an
+extra container wake and video upload per approved video.
+
 A finished run leaves the input video and `segments.json` (transcript **and** translation) in R2
 for 24h, which is what lets the ✏️ Edit card re-run at four depths — `full`, `retranscribe`,
 `retranslate`, `restyle`. `pickMode` in `src/bot/edit.ts` picks the shallowest one that can serve
@@ -78,6 +84,16 @@ the change, so a font change costs one encode and a translator change costs no t
   read-modify-write per tap can serve a stale draft and silently undo the user's changes.
 - **Stored cues are deliberately unfitted** to any line length. Line length is a per-job setting,
   so `refitSegments` applies it at burn time — that is what lets a restyle re-fit the same text.
+- **📏 Line length `auto` is not a number.** `charLimitFor` resolves it per video from the frame
+  and the font size the captions are drawn at, because libass *wraps* a line too wide for the
+  frame instead of clipping it — so a fixed 42 fails silently on the 9:16 videos most uploads are,
+  stacking every cue into two or three lines over the picture. It only ever shortens: the ceiling
+  is the 42-character broadcast norm, not the widest line that fits. `fitSegments` in
+  `src/pipeline/ai.ts` is the single call the burn *and* the 🖼 preview make — a preview rendered
+  at a different limit from the burn is worse than no preview — and it is also what adds the
+  reading-rate cap, which is `auto`-only. That cap does not buy reading time (splitting a cue
+  halves its span too); it splits a line that would flash full-width for half a second into two
+  the eye takes at a glance.
 - **Translate whole sentences, never caption-sized fragments.** Transcription stays at the
   provider's granularity and `groupForTranslation` merges it into sentences; splitting first is
   what produced wrong translations, because each half was translated with no context.
@@ -123,6 +139,11 @@ the change, so a font change costs one encode and a translator change costs no t
   and the Persian digits. Noto Naskh Arabic carries the whole Arabic block plus both supplements.
   `FONTS` in `settings.ts` is append-only for the same reason as `CODE_FIELDS` — `MENUS.font`
   indexes it onto the buttons.
+- **`MENUS.position` is a picture of the frame, not a list.** Its `rows` are the frame's bands top
+  to bottom, with one button per band between the bottom edge and the centre — the raised variants
+  used to be a fourth row under the nine-cell grid, which put 'Upper third' below 'Bottom left'.
+  `rows` is the only thing that re-orders it: `POSITIONS` itself is append-only like every other
+  option list, so a new step goes on the end of that object and into the right band here.
 - **A settings field that cannot change an existing video belongs in `CHAT_ONLY`.** `MENUS` drives
   both menus, and `MenuScope.fields` is what narrows the per-video card to `EDIT_FIELDS` —
   reviewing a script is meaningless on a card posted after the burn.

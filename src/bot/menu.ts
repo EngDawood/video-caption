@@ -72,22 +72,26 @@ export function fieldKeyboard(
   scope: MenuScope = chatScope,
 ): InlineKeyboard {
   const menu = MENUS[field];
-  // A menu can show its options in an order of its own: the stored order is
-  // append-only because encodeSettings indexes it, which is not always the
-  // order a person reads.
-  const ordered = menu.layout
-    ? menu.layout.flatMap((value) => menu.options.filter((o) => o.value === value))
-    : menu.options;
-  const buttons = ordered.map((option) => ({
+  const button = (option: { value: string; label: string }) => ({
     text: `${settings[field] === option.value ? '✅' : '▫️'} ${option.label}`,
     callback_data: scope.pick(field, option.value),
-  }));
+  });
+  // A value naming no option is dropped rather than drawn: `rows` and `layout`
+  // are hand-written, and a typo in one must not mint a button whose tap
+  // decodes to nothing.
+  const optionsFor = (values: string[]) =>
+    values.flatMap((value) => menu.options.filter((o) => o.value === value));
 
-  const columns = menu.columns ?? 1;
-  const rows: InlineKeyboard = [];
-  for (let i = 0; i < buttons.length; i += columns) rows.push(buttons.slice(i, i + columns));
-  rows.push([{ text: '⬅️ Back', callback_data: scope.open('root') }]);
-  return rows;
+  const rows: InlineKeyboard = menu.rows
+    ? // A field whose keyboard is a picture rather than a list — see `rows` in
+      // settings.ts. Row widths vary, which is the whole point.
+      menu.rows.map((row) => optionsFor(row).map(button))
+    : // A menu can show its options in an order of its own: the stored order is
+      // append-only because encodeSettings indexes it, which is not always the
+      // order a person reads.
+      (menu.layout ? optionsFor(menu.layout) : menu.options).map((option) => [button(option)]);
+
+  return [...rows.filter((row) => row.length > 0), [{ text: '⬅️ Back', callback_data: scope.open('root') }]];
 }
 
 /** Option labels carry a description after an em dash; the button row wants only the name. */

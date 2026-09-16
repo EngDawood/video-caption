@@ -43,6 +43,11 @@ export type FontId = keyof typeof FONTS;
 /**
  * Offered line lengths, in characters. Stored as strings because every menu
  * value is a string on the way through a callback_data payload.
+ *
+ * Append only, like every other option list here — `encodeSettings` puts the
+ * index on the buttons — so 'auto' goes on the end and `layout` shows it
+ * first. It is not a number: `charLimitFor` resolves it per video, against
+ * that video's frame and the size the captions are being drawn at.
  */
 export const CHAR_LIMITS = {
   '28': { label: '28 — punchy, one short line' },
@@ -50,6 +55,7 @@ export const CHAR_LIMITS = {
   '42': { label: '42 — broadcast norm' },
   '52': { label: '52 — relaxed' },
   '64': { label: '64 — long lines' },
+  auto: { label: 'Auto — fit this video' },
 } as const;
 
 export type CharLimitId = keyof typeof CHAR_LIMITS;
@@ -160,6 +166,27 @@ export const CONFIRM = {
 
 export type ConfirmId = keyof typeof CONFIRM;
 
+/**
+ * Whether a run stops and shows one burned frame before it encodes the video.
+ *
+ * Off is the default: the 🖼 Preview button is already on the ✏️ card and the
+ * 📝 review card, so nothing here is lost by leaving it off — this only makes
+ * the check automatic. On, the run ends after the translation exactly as 📝
+ * Check script does, with a single frame in place of the .srt, and ✅ Burn it
+ * queues the same `restyle` re-run. Both on posts the script and the frame on
+ * one card.
+ *
+ * It is not free: the frame needs the video back in a container, so an
+ * approved video pays one extra container wake and one extra upload. A style
+ * that turns out wrong otherwise costs a whole encode instead.
+ */
+export const PREVIEW = {
+  off: { label: 'Off — burn straight away' },
+  on: { label: 'On — show me a frame first' },
+} as const;
+
+export type PreviewId = keyof typeof PREVIEW;
+
 export interface CaptionSettings {
   preset: CaptionPreset;
   size: CaptionSize;
@@ -177,6 +204,8 @@ export interface CaptionSettings {
   review: ReviewId;
   /** Stop and show these settings before the video is started at all. */
   confirm: ConfirmId;
+  /** Stop and show one burned frame before the full encode. */
+  preview: PreviewId;
 }
 
 export type SettingsField = keyof CaptionSettings;
@@ -190,13 +219,19 @@ interface Menu {
   label: string;
   icon: string;
   options: MenuOption[];
-  /** Buttons per keyboard row. One per row when unset. */
-  columns?: number;
   /**
    * Values in the order the keyboard shows them, for a field whose stored
    * option order is pinned by the settings code and reads badly as a menu.
    */
   layout?: string[];
+  /**
+   * The keyboard as explicit rows, for a field whose reading order is not the
+   * one-per-row list everything else gets. 📍 Position is the one: it is a
+   * picture of the frame, so its rows have to be the frame's bands top to
+   * bottom, and the bands between the bottom edge and the centre hold one
+   * button each.
+   */
+  rows?: string[][];
 }
 
 /** Drives both the menu buttons and the validation of incoming callbacks. */
@@ -248,29 +283,32 @@ export const MENUS: Record<SettingsField, Menu> = {
     label: 'Position',
     icon: '📍',
     options: Object.entries(POSITIONS).map(([value, p]) => ({ value, label: p.label })),
-    // Laid out as the nine-cell grid it is, with the two raised variants
-    // under it. The options themselves stay in POSITIONS order, because that
-    // index is what rides on the buttons.
-    columns: 3,
-    layout: [
-      'topLeft',
-      'top',
-      'topRight',
-      'middleLeft',
-      'center',
-      'middleRight',
-      'bottomLeft',
-      'bottom',
-      'bottomRight',
-      'upperThird',
-      'lowerMiddle',
-      'lowerThird',
+    // A picture of the frame, read top to bottom. The nine-cell grid alone was
+    // one, but the raised variants were tacked on as a fourth row below
+    // 'Bottom left' — so 'Upper third' sat under the bottom of the frame and
+    // the four steps between the bottom edge and the centre read in no order
+    // at all. Each band is its own row now, in the order the eye travels, and
+    // a band with one option is a full-width button rather than a cell in a
+    // grid that means nothing. The options themselves stay in POSITIONS order,
+    // because that index is what rides on the buttons.
+    rows: [
+      ['topLeft', 'top', 'topRight'],
+      ['upperThird'],
+      ['middleLeft', 'center', 'middleRight'],
+      ['belowCentre'],
+      ['lowerMiddle'],
+      ['lowerThird'],
+      ['aboveBottom'],
+      ['bottomLeft', 'bottom', 'bottomRight'],
     ],
   },
   chars: {
     label: 'Line length',
     icon: '📏',
     options: Object.entries(CHAR_LIMITS).map(([value, c]) => ({ value, label: c.label })),
+    // 'auto' is last in CHAR_LIMITS because that list is append-only, and
+    // first on the keyboard because it is the one that needs no thought.
+    layout: ['auto', '28', '36', '42', '52', '64'],
   },
   sourceLang: {
     label: 'Spoken language',
@@ -302,6 +340,11 @@ export const MENUS: Record<SettingsField, Menu> = {
     icon: '🧾',
     options: Object.entries(CONFIRM).map(([value, c]) => ({ value, label: c.label })),
   },
+  preview: {
+    label: 'Check preview',
+    icon: '🖼',
+    options: Object.entries(PREVIEW).map(([value, p]) => ({ value, label: p.label })),
+  },
 };
 
 /**
@@ -311,9 +354,10 @@ export const MENUS: Record<SettingsField, Menu> = {
  * what that card re-runs. Reviewing the script cannot: the script has been
  * burned by the time the card is posted, and the card is itself the place the
  * review would have happened. Nor can 🧾 Confirm settings: the run it gates
- * has already happened by then.
+ * has already happened by then. 🖼 Check preview is the same — the card it
+ * would gate is this one, and it carries a 🖼 Preview button already.
  */
-const CHAT_ONLY = new Set<SettingsField>(['review', 'confirm']);
+const CHAT_ONLY = new Set<SettingsField>(['review', 'confirm', 'preview']);
 
 /**
  * The one setting the 🧾 confirm card leaves out.
@@ -352,6 +396,7 @@ const CODE_FIELDS: SettingsField[] = [
   'translator',
   'review',
   'confirm',
+  'preview',
 ];
 
 /**
@@ -389,6 +434,8 @@ export function defaults(env: Env): CaptionSettings {
 
   // Only snaps to a menu option when the deployed number is one of them; an
   // off-menu value would render as a button no tap could ever reproduce.
+  // 'auto' is one of them, so a deployment can make the fitted limit the
+  // default for every new chat by setting MAX_CAPTION_CHARS to it.
   const chars = (env.MAX_CAPTION_CHARS in CHAR_LIMITS ? env.MAX_CAPTION_CHARS : '42') as CharLimitId;
   const sourceLang = (env.SOURCE_LANG in SOURCE_LANGUAGES ? env.SOURCE_LANG : 'auto') as SourceLangId;
   const targetLang = (env.TARGET_LANG in TARGET_LANGUAGES ? env.TARGET_LANG : 'ar') as TargetLangId;
@@ -418,6 +465,10 @@ export function defaults(env: Env): CaptionSettings {
     // On by default: the card costs one tap and is the only chance to change
     // what a video is captioned with *before* the transcription is paid for.
     confirm: 'on',
+    // Off by default: the frame costs a container wake and an upload on every
+    // approved video, and the same look is one tap away on the ✏️ card for
+    // anyone who only wants to check now and then.
+    preview: 'off',
   };
 }
 

@@ -44,6 +44,10 @@ const help = (env: Env) =>
     '',
     'Next to it, ✍️ Fix text lists every line with its timestamps — what was said and what was burned in. Tap a block to copy it, correct the wording and send it back; the timestamps are how I find the line to replace.',
     '',
+    '🖼 Preview burns the captions onto a single frame so you can see how they sit before paying for the whole encode. Turn 🖼 Check preview on in /settings and every video stops on that frame and waits for ✅ Burn it.',
+    '',
+    '📏 Line length on Auto sizes the caption to the video: a phone-shaped video gets a shorter line than a widescreen one, so a caption stays on one line instead of stacking up over the picture.',
+    '',
     'Send /settings to change the defaults every new video starts from, or /info for what is set up right now.',
   ].join('\n');
 
