@@ -1,6 +1,6 @@
 import { NonRetryableError } from 'cloudflare:workflows';
 import { ApiJobError, jobStatus, submitJob } from './api/jobs';
-import { getOutput } from './api/output';
+import { getOutput, hasValidSignature } from './api/output';
 import { handleMcp } from './mcp/server';
 import { extractSourceUrl, maxSourceBytes } from './media/download';
 import { handleEditCallback, handleTextCorrection, isEditCallback } from './bot/edit';
@@ -154,9 +154,10 @@ export default {
 
     if (url.pathname.startsWith('/api/jobs')) {
       // The download is also a link someone opens in a browser, which cannot set a header.
-      const isDownload = request.method === 'GET' && /^\/api\/jobs\/[^/]+\/output$/.test(url.pathname);
-      const key = request.headers.get('x-api-key') ?? (isDownload ? url.searchParams.get('token') : null);
-      if (!env.API_KEY || key !== env.API_KEY) {
+      const download = request.method === 'GET' ? url.pathname.match(/^\/api\/jobs\/([^/]+)\/output$/) : null;
+      const key = request.headers.get('x-api-key') ?? (download ? url.searchParams.get('token') : null);
+      const signed = download !== null && (await hasValidSignature(env, download[1], url));
+      if (!env.API_KEY || (key !== env.API_KEY && !signed)) {
         return new Response('forbidden', { status: 403 });
       }
       return handleApiJobs(request, env, url);

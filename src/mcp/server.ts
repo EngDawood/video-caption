@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { createMcpHandler } from 'agents/mcp/server';
 import { z } from 'zod';
 import { ApiJobError, jobStatus, submitJob } from '../api/jobs';
-import { outputUrl } from '../api/output';
+import { signedOutputUrl } from '../api/output';
 import { ALL_FIELDS, MENUS } from '../captions/settings';
 import { assetKeys } from '../media/assets';
 import type { Env } from '../types';
@@ -98,12 +98,12 @@ function createServer(env: Env): McpServer {
     {
       title: 'Get a captioned video link',
       description:
-        "Use this when a job's status is complete and the user wants the captioned video. Returns a download URL rather than the MP4 itself, which is too large to return inline; ready is false until the video exists. The URL needs this server's key, as an x-api-key header or a ?token= query parameter.",
+        "Use this when a job's status is complete and the user wants the captioned video. Returns a download URL rather than the MP4 itself, which is too large to return inline; ready is false until the video exists. The URL is signed and opens directly in a browser for 24 hours — share it with the user as a link.",
       inputSchema: z.object({ jobId }),
       outputSchema: z.object({
         jobId: z.string(),
         ready: z.boolean().describe('Whether the captioned video can be downloaded yet'),
-        url: z.string().describe('GET this with the x-api-key header or ?token= to download the MP4'),
+        url: z.string().describe('Signed MP4 download link, valid for 24 hours'),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       _meta: {
@@ -113,7 +113,7 @@ function createServer(env: Env): McpServer {
     },
     async ({ jobId }) => {
       const head = await env.MEDIA.head(assetKeys(jobId).output);
-      return result({ jobId, ready: head !== null, url: outputUrl(env, jobId) });
+      return result({ jobId, ready: head !== null, url: await signedOutputUrl(env, jobId) });
     },
   );
 
