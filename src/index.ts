@@ -1,4 +1,6 @@
 import { NonRetryableError } from 'cloudflare:workflows';
+import { ApiJobError, jobStatus, submitJob } from './api/jobs';
+import { getOutput } from './api/output';
 import { extractSourceUrl, maxSourceBytes } from './media/download';
 import { handleEditCallback, handleTextCorrection, isEditCallback } from './bot/edit';
 import {
@@ -132,6 +134,15 @@ export default {
       // Always 200 quickly — Telegram retries anything else and would queue duplicates.
       ctx.waitUntil(handleUpdate(update, env));
       return new Response('ok');
+    }
+
+    // The external REST API. Unlike ADMIN_CHAT_ID this fails CLOSED: an
+    // unset API_KEY disables every route below rather than opening them.
+    if (url.pathname.startsWith('/api/jobs')) {
+      if (!env.API_KEY || request.headers.get('x-api-key') !== env.API_KEY) {
+        return new Response('forbidden', { status: 403 });
+      }
+      return handleApiJobs(request, env, url);
     }
 
     return new Response('not found', { status: 404 });
@@ -324,4 +335,50 @@ function offerProblem(err: unknown): string {
   if (err instanceof NonRetryableError) return err.message;
   console.error('[webhook] could not resolve link:', err);
   return 'The download service is busy right now — send that link again in a moment.';
+}
+
+/**
+ * `POST /api/jobs`, `GET /api/jobs/{id}` and `GET /api/jobs/{id}/output` —
+ * the external REST API. Progress and the finished video go out through the
+ * `callbackUrl` the job was submitted with (`pipeline/channel.ts`); this
+ * endpoint exists for polling and for fetching the result once it lands.
+ */
+async function handleApiJobs(request: Request, env: Env, url: URL): Promise<Response> {
+  const outputMatch = url.pathname.match(/^\/api\/jobs\/([^/]+)\/output$/);
+  if (outputMatch && request.method === 'GET') {
+    const object = await getOutput(env, outputMatch[1]);
+    if (!object) return Response.json({ error: 'no output for that job — not finished, already fetched, or expired' }, { status: 404 });
+    return new Response(object.body, {
+      headers: { 'content-type': 'video/mp4', 'content-length': String(object.size) },
+    });
+  }
+
+  const jobMatch = url.pathname.match(/^\/api\/jobs\/([^/]+)$/);
+  if (jobMatch && request.method === 'GET') {
+    try {
+      return Response.json(await jobStatus(env, jobMatch[1]));
+    } catch (err) {
+      if (err instanceof ApiJobError) return Response.json({ error: err.message }, { status: err.status });
+      throw err;
+    }
+  }
+
+  if (url.pathname === '/api/jobs' && request.method === 'POST') {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ error: 'request body must be valid JSON' }, { status: 400 });
+    }
+
+    try {
+      return Response.json(await submitJob(env, body), { status: 202 });
+    } catch (err) {
+      if (err instanceof ApiJobError) return Response.json({ error: err.message }, { status: err.status });
+      console.error('[api] job submission failed:', err);
+      return Response.json({ error: 'could not start job' }, { status: 500 });
+    }
+  }
+
+  return new Response('not found', { status: 404 });
 }

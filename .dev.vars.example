@@ -23,3 +23,9 @@ TELEGRAM_WEBHOOK_SECRET=change-me
 # In production: npx wrangler secret put DOWNLOAD_API_KEY
 # Unset means links are politely refused; uploads keep working.
 DOWNLOAD_API_KEY=
+
+# Shared secret for POST/GET /api/jobs (external REST API), checked against
+# the x-api-key header. Unlike ADMIN_CHAT_ID this fails CLOSED — unset means
+# the whole /api/jobs surface returns 403.
+# In production: npx wrangler secret put API_KEY
+API_KEY=change-me

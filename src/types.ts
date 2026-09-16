@@ -35,9 +35,23 @@ export interface Env {
   /** Largest video accepted from a social link, in MB. */
   MAX_SOURCE_MB?: string;
 
+  /**
+   * This Worker's own public origin, e.g. https://video-caption.example.workers.dev.
+   * Used only to build the download link a webhook callback receives —
+   * Workflows run with no request to read an origin from. Unset means the
+   * link is a bare path; an API client on the same host can still join it.
+   */
+  API_BASE_URL?: string;
+
   // secrets (wrangler secret put)
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
+  /**
+   * Shared secret for the external REST API (POST/GET /api/jobs). Unset means
+   * the API is disabled entirely — unlike ADMIN_CHAT_ID, this fails CLOSED,
+   * since a request here spends container time and STT the moment it lands.
+   */
+  API_KEY?: string;
   /** Both are used: one is the preferred STT provider, the other its fallback. */
   GROQ_API_KEY?: string;
   MISTRAL_API_KEY?: string;
@@ -80,14 +94,20 @@ export interface Segment {
  *
  * On a `full` job exactly one of `fileId` / `sourceUrl` is set: an upload, or a
  * social link. The other modes need neither — they have `assetJobId` instead.
+ *
+ * `chatId`/`messageId` are set for every Telegram-originated job and absent
+ * for one the REST API queued — there is no chat to reply into. `channel`
+ * carries the alternative: unset means Telegram (every job queued before it
+ * existed was one), so `channelFor` in `pipeline/channel.ts` has one branch
+ * to add per API, not one per call site across the workflow.
  */
 export interface CaptionJob {
   jobId: string;
-  chatId: number;
-  messageId: number;
+  chatId?: number;
+  messageId?: number;
   /** Telegram file id, when the user sent the video itself. */
   fileId?: string;
-  /** Social post URL, when the user sent a link instead. */
+  /** Social post URL, when the user sent a link instead — or what an API job was submitted with. */
   sourceUrl?: string;
   statusMessageId?: number;
   /**
@@ -105,9 +125,12 @@ export interface CaptionJob {
   /**
    * Settings frozen at queue time. A restyle carries the per-video draft here
    * so it burns what the user chose rather than whatever the chat defaults
-   * happen to be by the time the step runs.
+   * happen to be by the time the step runs. Required for an API job — there
+   * is no chat to fall back on.
    */
   settings?: CaptionSettings;
+  /** Where progress and the finished video go. See the class doc above. */
+  channel?: { type: 'webhook'; callbackUrl: string };
 }
 
 export interface VideoMeta {
