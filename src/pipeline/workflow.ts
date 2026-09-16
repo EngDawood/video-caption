@@ -7,14 +7,14 @@ import {
   type WorkflowTimeoutDuration,
 } from 'cloudflare:workers';
 import { refitSegments, transcribeChunk, translateSegments } from './ai';
+import { channelFor } from './channel';
 import { fetchMedia, maxSourceBytes, resolveVideo } from '../media/download';
 import { assetKeys } from '../media/assets';
 import { ffmpegFor } from '../media/ffmpeg';
 import { loadSettings, type CaptionSettings } from '../captions/settings';
 import { buildAssForSettings } from '../captions/subtitles';
-import { sendEditCard, sendReviewCard } from '../bot/edit';
 import { shortLabel } from '../bot/menu';
-import { cancelKey, cancelKeyboard } from '../bot/jobs';
+import { cancelKey } from '../bot/jobs';
 import { telegram } from '../bot/telegram';
 import type { CaptionJob, Env, Segment, StoredCues, VideoMeta } from '../types';
 
@@ -28,7 +28,7 @@ const EXPIRED = 'that video is no longer stored — send it again to caption it 
 
 export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
   async run(event: WorkflowEvent<CaptionJob>, step: WorkflowStep) {
-    const { jobId, chatId, messageId, fileId, sourceUrl, statusMessageId } = event.payload;
+    const { jobId, chatId, fileId, sourceUrl } = event.payload;
     const mode = event.payload.mode ?? 'full';
     // A re-burn reads the video and the cues the original run stored, so it
     // works under that job's prefix and overwrites that job's output.
@@ -36,29 +36,24 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
     const keys = assetKeys(assetJobId);
 
     const env = this.env;
-    const tg = telegram(env.TELEGRAM_BOT_TOKEN);
     const ffmpeg = ffmpegFor(env, jobId);
-
-    // Telegram drops an inline keyboard from any edit that does not re-send
-    // it, so every progress line has to carry the ✖️ Stop button along.
-    const keyboard = event.payload.cancelToken ? cancelKeyboard(event.payload.cancelToken) : undefined;
-    const say = (text: string) =>
-      statusMessageId
-        ? tg.editMessageText(chatId, statusMessageId, text, keyboard)
-        : tg.sendMessage(chatId, text).catch(() => null);
-
-    /** For lines that end the job: the button would have nothing left to stop. */
-    const settle = (text: string) =>
-      statusMessageId
-        ? tg.editMessageText(chatId, statusMessageId, text)
-        : tg.sendMessage(chatId, text).catch(() => null);
+    const channel = channelFor(env, event.payload);
+    // Only for pulling an uploaded file's bytes below — everything else a job
+    // reports or delivers goes through `channel`, not this client.
+    const tg = telegram(env.TELEGRAM_BOT_TOKEN);
+    const say = (text: string) => channel.progress(text);
+    const settle = (text: string) => channel.settle(text);
 
     try {
       // Frozen for the whole run: a re-burn carries the draft the user just
       // built, and a first run pins the chat defaults as they were at queue
-      // time rather than whatever a retry might read later.
+      // time rather than whatever a retry might read later. An API job has
+      // no chat to fall back on — the submission endpoint requires settings
+      // outright, so this only ever reads KV for a Telegram job.
       const settings = (await step.do('resolve-settings', RETRY, async () => {
-        return event.payload.settings ?? (await loadSettings(env, chatId));
+        if (event.payload.settings) return event.payload.settings;
+        if (chatId === undefined) throw new NonRetryableError('job has no settings and no chat to load defaults from');
+        return loadSettings(env, chatId);
       })) as CaptionSettings;
 
       // How deep this run goes. Each mode reuses everything the stage above it
@@ -207,7 +202,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
         //     than leaving a job nobody can finish.
         if (settings.review === 'on') {
           const offered = await step.do('offer-review', async () => {
-            return sendReviewCard(env, chatId, messageId, assetJobId, settings);
+            return channel.offerReview(assetJobId, settings);
           });
 
           if (offered) {
@@ -252,13 +247,22 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
       await step.do('deliver', RETRY, async () => {
         const object = await env.MEDIA.get(keys.output);
         if (!object) throw new Error('burned video missing from R2');
-        await tg.sendVideo(chatId, await object.arrayBuffer(), { replyTo: messageId });
+        await channel.deliver(await object.arrayBuffer());
       });
 
       await step.do('cleanup', async () => {
-        await settle('✅ Done.');
         await ffmpeg.cleanup();
         await this.forgetCancelToken(event.payload.cancelToken);
+
+        if (event.payload.channel?.type === 'webhook') {
+          // `deliver` above already sent the definitive 'completed' event
+          // with the download link; a generic settle here would just be a
+          // second, confusingly-ordered callback. The video itself stays in
+          // R2 for the client to fetch — the r2-lifecycle rule is its backstop.
+          return;
+        }
+
+        await settle('✅ Done.');
         // The input and the cues stay: they are what makes the ✏️ Edit card
         // below cheap. Closing that card drops them.
         await env.MEDIA.delete(keys.output);
@@ -266,12 +270,12 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
 
       // 8. Offer to change how it looks, for this video only.
       await step.do('offer-restyle', async () => {
-        await sendEditCard(env, chatId, messageId, assetJobId, settings);
+        await channel.offerEdit(assetJobId, settings);
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       console.error(`[workflow] job ${jobId} failed:`, reason);
-      await settle(`❌ Failed: ${reason}`);
+      await channel.fail(reason);
       await ffmpeg.cleanup();
       await this.forgetCancelToken(event.payload.cancelToken);
       throw err;
