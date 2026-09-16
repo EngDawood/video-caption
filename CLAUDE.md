@@ -181,3 +181,9 @@ defaults, and a value not on the menu falls back rather than being used verbatim
 Docker is not installed on this machine, so the container cannot be built, deployed or dry-run
 here. Anything touching ffmpeg, burning or fonts is **unverified by definition** — say so rather
 than implying it was tested. `npm run typecheck` is the real check.
+
+## Commits
+
+Never put a `claude.ai/code/session_...` link in a commit message, PR title or body, code
+comment, or anything else pushed to this repository. Session URLs are private to whoever opened
+the session; a repository is not the place for them. `Co-Authored-By:` is fine.
