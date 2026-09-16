@@ -1,4 +1,11 @@
 {
+  
+      "attribution": {
+    "commit": "Generated with AI\n\nCo-Authored-By: Dawood Saleh <davidhormos@gmail.com>",
+    "pr": "",
+    "sessionUrl": false
+  }
+,
   "hooks": {
     "SessionStart": [
       {
