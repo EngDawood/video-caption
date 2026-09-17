@@ -53,6 +53,15 @@ the `.srt`; both on posts both above one card. The frame is rendered by `renderP
 long step — the workflow's own container stays stopped through it. Off by default: it costs an
 extra container wake and video upload per approved video.
 
+**Preview-only auto-burns after 10s of silence** — a frame is a glance, not something to read, so
+`workflow.ts` follows the offer with `step.sleep('preview-timeout', '10 seconds')` and then queues
+the same `restyle` re-run ✅ Burn it would, over the exact jobId (`restyle-${token}-${code}`) that
+button uses. Whichever fires first, the tap or the timeout, wins; `queueRestyle` in `bot/edit.ts`
+reads the collision back with `CAPTION_WORKFLOW.get` instead of matching on the create error, so
+the loser is a silent no-op rather than a second burn. 📝 **Check script** does *not* get this
+timer — reading a script and pasting back a correction takes real time, so that path still waits
+for the tap with no timeout. Turning both on together also skips the timer, for the same reason.
+
 A finished run leaves the input video and `segments.json` (transcript **and** translation) in R2
 for 24h, which is what lets the ✏️ Edit card re-run at four depths — `full`, `retranscribe`,
 `retranslate`, `restyle`. `pickMode` in `src/bot/edit.ts` picks the shallowest one that can serve
