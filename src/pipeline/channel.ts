@@ -1,4 +1,4 @@
-import { sendEditCard, sendReviewCard } from '../bot/edit';
+import { sendEditCard, sendReviewCard, type ReviewCard } from '../bot/edit';
 import { cancelKeyboard } from '../bot/jobs';
 import { telegram } from '../bot/telegram';
 import { releaseSlot } from '../api/concurrency';
@@ -23,8 +23,8 @@ export interface Channel {
   fail(reason: string): Promise<void>;
   /** The finished video, once `burn-subtitles` has written it to `keys.output`. */
   deliver(video: ArrayBuffer): Promise<void>;
-  /** Offer to check the script before burning. Returns whether it could be posted. */
-  offerReview(assetJobId: string, settings: CaptionSettings): Promise<boolean>;
+  /** Offer to check the script before burning. False if it could not be posted. */
+  offerReview(assetJobId: string, settings: CaptionSettings): Promise<ReviewCard | false>;
   /** Offer to restyle the delivered video. A no-op where there is no such follow-up. */
   offerEdit(assetJobId: string, settings: CaptionSettings): Promise<void>;
 }

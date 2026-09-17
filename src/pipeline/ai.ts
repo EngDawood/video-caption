@@ -704,7 +704,9 @@ async function translateText(
       const out =
         model.kind === 'chat'
           ? await promptTranslate(env, model.model, text, source, target, context)
-          : await mtTranslate(env, model.model, text, source, target);
+          : model.kind === 'nvidia'
+            ? await nvidiaTranslate(env, model.model, text, source, target)
+            : await mtTranslate(env, model.model, text, source, target);
       if (out) {
         if (isPlausible(out, target)) return out;
         best ||= out;
@@ -762,6 +764,46 @@ async function promptTranslate(
     temperature: 0.2,
   } as any);
   return stripWrapper(String(res?.response ?? '').trim());
+}
+
+const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
+
+/**
+ * NVIDIA Riva: an external chat-completions endpoint, not Workers AI, and its
+ * own rigid prompt shape — the system message is the bare `source-target`
+ * language pair, the user message is the text and nothing else. No CONTEXT
+ * BEFORE/AFTER, no tone instructions: NVIDIA's own docs say the model was
+ * fine-tuned on exactly this template and underperforms off it, so unlike
+ * `promptTranslate` this deliberately does not reuse that context window.
+ */
+async function nvidiaTranslate(
+  env: Env,
+  model: string,
+  text: string,
+  source: string,
+  target: string,
+): Promise<string> {
+  const apiKey = env.NVIDIA_API_KEY;
+  if (!apiKey) throw new Error('riva is selected as translator but NVIDIA_API_KEY is not set');
+
+  const res = await fetch(NVIDIA_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: `${source}-${target}` },
+        { role: 'user', content: text },
+      ],
+    }),
+  });
+  if (!res.ok) throw new Error(`nvidia translation failed (${res.status}): ${await res.text()}`);
+
+  const data: any = await res.json();
+  return String(data?.choices?.[0]?.message?.content ?? '').trim();
 }
 
 /**

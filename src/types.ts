@@ -56,6 +56,12 @@ export interface Env {
   GROQ_API_KEY?: string;
   MISTRAL_API_KEY?: string;
   /**
+   * NVIDIA NIM key for the Riva translator. Unset means picking 🧠 Riva on the
+   * menu fails that job's translation step rather than silently falling back
+   * — see `nvidiaTranslate` in `pipeline/ai.ts`.
+   */
+  NVIDIA_API_KEY?: string;
+  /**
    * download-media-bot API key. Unset means the bot still captions uploaded
    * videos but tells the user that links are not available.
    */
