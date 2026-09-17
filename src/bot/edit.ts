@@ -97,6 +97,14 @@ export function isEditCallback(data: string): boolean {
   return /^e[msgxtfrdp]?:/.test(data);
 }
 
+/** What `sendReviewCard` posted, so a caller waiting on the tap can act as if it happened. */
+export interface ReviewCard {
+  /** The session token the card's buttons carry — `eg:${token}:${code}` is ✅ Burn it. */
+  token: string;
+  /** The card message itself, so a later status edit lands on it like a tap's would. */
+  messageId: number;
+}
+
 /** SRT form — `00:01:02,400` — the shape people already know from subtitles. */
 function clock(seconds: number): string {
   const ms = Math.max(0, Math.round(seconds * 1000));
@@ -605,7 +613,7 @@ export async function sendReviewCard(
   messageId: number,
   assetJobId: string,
   settings: CaptionSettings,
-): Promise<boolean> {
+): Promise<ReviewCard | false> {
   const tg = telegram(env.TELEGRAM_BOT_TOKEN);
 
   try {
@@ -660,8 +668,8 @@ export async function sendReviewCard(
         { text: '✖️ Discard', callback_data: `ex:${token}` },
       ],
     ];
-    await tg.sendMessage(chatId, reviewTitle(sentScript, sentFrame), messageId, keyboard);
-    return true;
+    const sent = await tg.sendMessage(chatId, reviewTitle(sentScript, sentFrame), messageId, keyboard);
+    return { token, messageId: sent.message_id };
   } catch (err) {
     console.error('[edit] could not offer a review:', err);
     return false;
@@ -1003,6 +1011,27 @@ interface RerunOptions {
   revision?: string;
 }
 
+/**
+ * Queue a re-run behind `jobId`, idempotently.
+ *
+ * `jobId` is deterministic per token+code (see `startRestyle` and the
+ * review-timeout auto-continue in `workflow.ts`), so two attempts at the same
+ * one — a real double tap, or the auto-continue racing a tap that landed just
+ * before it — collide into a single run rather than burning the video twice.
+ * `CAPTION_WORKFLOW.create` throws on a colliding id; that is read back with
+ * `.get` rather than matched on the error text, which is not part of any
+ * contract. Only a genuine failure to queue is rethrown.
+ */
+export async function queueRestyle(env: Env, jobId: string, params: Omit<CaptionJob, 'jobId'>): Promise<void> {
+  try {
+    await env.CAPTION_WORKFLOW.create({ id: jobId, params: { jobId, ...params } });
+  } catch (err) {
+    const existing = await env.CAPTION_WORKFLOW.get(jobId).catch(() => null);
+    if (existing) return;
+    throw err;
+  }
+}
+
 async function startRestyle(
   env: Env,
   chatId: number,
@@ -1027,25 +1056,15 @@ async function startRestyle(
   await tg.editMessageText(chatId, messageId, WORKING[mode ?? 'restyle']);
 
   try {
-    await env.CAPTION_WORKFLOW.create({
-      id: jobId,
-      params: {
-        jobId,
-        chatId,
-        messageId: session.messageId,
-        mode,
-        assetJobId: session.assetJobId,
-        settings,
-        statusMessageId: messageId,
-      },
+    await queueRestyle(env, jobId, {
+      chatId,
+      messageId: session.messageId,
+      mode,
+      assetJobId: session.assetJobId,
+      settings,
+      statusMessageId: messageId,
     });
   } catch (err) {
-    // Ask whether it is already there rather than matching on the error text,
-    // which is not part of any contract. If it is, the status line above is
-    // already telling the truth and there is nothing to undo.
-    const existing = await env.CAPTION_WORKFLOW.get(jobId).catch(() => null);
-    if (existing) return;
-
     console.error('[edit] could not queue a re-run:', err);
     await tg.editMessageText(
       chatId,

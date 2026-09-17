@@ -11,10 +11,11 @@ import { channelFor } from './channel';
 import { fetchMedia, maxSourceBytes, resolveVideo } from '../media/download';
 import { assetKeys } from '../media/assets';
 import { ffmpegFor } from '../media/ffmpeg';
-import { loadSettings, type CaptionSettings } from '../captions/settings';
+import { encodeSettings, loadSettings, type CaptionSettings } from '../captions/settings';
 import { buildAssForSettings } from '../captions/subtitles';
 import { shortLabel } from '../bot/menu';
 import { cancelKey } from '../bot/jobs';
+import { queueRestyle } from '../bot/edit';
 import { telegram } from '../bot/telegram';
 import type { CaptionJob, Env, Segment, StoredCues, VideoMeta } from '../types';
 
@@ -206,11 +207,11 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
         //     A card that cannot be posted falls through to the burn rather
         //     than leaving a job nobody can finish.
         if (settings.review === 'on' || settings.preview === 'on') {
-          const offered = await step.do('offer-review', longStep('5 minutes'), async () => {
+          const card = await step.do('offer-review', longStep('5 minutes'), async () => {
             return channel.offerReview(assetJobId, settings);
           });
 
-          if (offered) {
+          if (card) {
             await settle(
               settings.review === 'on'
                 ? '📝 Waiting for you to check the script.'
@@ -218,6 +219,32 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
             );
             await ffmpeg.cleanup();
             await this.forgetCancelToken(event.payload.cancelToken);
+
+            // A lone 🖼 preview is a glance, not something to read — so unlike
+            // 📝 Check script (which waits for ✅ Burn it indefinitely, because
+            // reading a script and pasting back corrections takes real time),
+            // it burns on its own after a short wait instead of parking the
+            // job on a tap that may never come. `queueRestyle` is handed the
+            // exact same jobId `eg:${token}:${code}` would create, so whichever
+            // fires first — this timeout or a real tap — wins and the other is
+            // a silent no-op; nothing burns twice. `step.sleep` costs nothing
+            // while it waits: the container is already stopped, same as the
+            // rest of this branch.
+            if (settings.preview === 'on' && settings.review !== 'on') {
+              await step.sleep('preview-timeout', '10 seconds');
+              await step.do('auto-burn', RETRY, async () => {
+                const code = encodeSettings(settings);
+                await queueRestyle(env, `restyle-${card.token}-${code}`, {
+                  chatId,
+                  messageId: event.payload.messageId,
+                  mode: 'restyle',
+                  assetJobId,
+                  settings,
+                  statusMessageId: card.messageId,
+                });
+              });
+            }
+
             return;
           }
         }
