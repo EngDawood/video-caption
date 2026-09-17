@@ -127,9 +127,16 @@ export type SttProviderId = keyof typeof STT_PROVIDERS;
 /**
  * Translation models.
  *
- * `kind` is the API shape, not a label: a chat model is sent `messages` and
- * answers in `response`, while m2m100 is sent `text`/`source_lang`/`target_lang`
- * and answers in `translated_text`.
+ * `kind` is the API shape, not a label: a `chat` model runs on Workers AI and
+ * is sent `messages`, answering in `response`; `mt` is also Workers AI, sent
+ * `text`/`source_lang`/`target_lang` and answering in `translated_text`;
+ * `nvidia` is the one external provider — its own HTTPS endpoint, its own key
+ * (`NVIDIA_API_KEY`) and a rigid prompt shape none of the Workers AI models
+ * use, so it gets its own `kind` rather than being forced into `chat`. See
+ * `nvidiaTranslate` in `ai.ts`.
+ *
+ * Append only, like every other option list here — `encodeSettings` puts
+ * this order on the buttons.
  */
 export const TRANSLATORS = {
   llama70b: {
@@ -146,6 +153,11 @@ export const TRANSLATORS = {
     label: 'M2M100 — literal, cheapest',
     model: '@cf/meta/m2m100-1.2b',
     kind: 'mt',
+  },
+  riva: {
+    label: 'NVIDIA Riva 4B — Arabic-tuned',
+    model: 'nvidia/riva-translate-4b-instruct-v2',
+    kind: 'nvidia',
   },
 } as const;
 
