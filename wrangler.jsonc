@@ -6,6 +6,16 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
+	// The custom domain. Cloudflare creates the DNS record and the cert itself,
+	// so nothing has to be added in the dashboard — the zone just has to be on
+	// this account. The *.workers.dev URL keeps working alongside it, which is
+	// what the MCP client falls back to.
+	"routes": [
+		{
+			"pattern": "vc.engdawood.com",
+			"custom_domain": true
+		}
+	],
 	"observability": {
 		"enabled": true
 	},
@@ -131,6 +141,6 @@
 		// webhook callback receives — a Workflow instance has no request to read
 		// an origin from. Update after the first deploy, or whenever a custom
 		// domain changes.
-		"API_BASE_URL": "https://video-caption.workers.dev"
+		"API_BASE_URL": "https://vc.engdawood.com"
 	}
 }
