@@ -1,0 +1,8 @@
+{
+  "name": "video-caption-plugin",
+  "description": "Client-side guidance for the video-caption MCP server: submit a social video, poll the job, hand back the captioned download link.",
+  "version": "0.1.0",
+  "author": {
+    "name": "EngDawood"
+  }
+}

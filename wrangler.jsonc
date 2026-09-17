@@ -14,7 +14,11 @@
 		{
 			"pattern": "vc.engdawood.com",
 			"custom_domain": true
-		}
+		},
+		{
+			"pattern": "wwww.vc.engdawood.com",
+			"custom_domain": true
+		},
 	],
 	"observability": {
 		"enabled": true

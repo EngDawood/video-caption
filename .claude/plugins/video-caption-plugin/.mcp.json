@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "video-caption": {
+      "type": "http",
+      "url": "${VIDEO_CAPTION_MCP_URL:-https://vc.engdawood.com/mcp}",
+      "headers": {
+        "x-api-key": "${VIDEO_CAPTION_API_KEY}"
+      }
+    }
+  }
+}

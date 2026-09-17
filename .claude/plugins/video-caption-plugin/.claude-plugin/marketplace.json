@@ -1,0 +1,15 @@
+{
+  "name": "video-caption-plugin",
+  "owner": {
+    "name": "EngDawood"
+  },
+  "description": "Skills for driving the video-caption MCP server.",
+  "plugins": [
+    {
+      "name": "video-caption-plugin",
+      "source": "./",
+      "description": "Connect to the video-caption MCP endpoint and run a caption job from submission to signed download link.",
+      "version": "0.1.0"
+    }
+  ]
+}
