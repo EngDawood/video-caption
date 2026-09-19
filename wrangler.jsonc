@@ -11,7 +11,7 @@
 	// this account. The *.workers.dev URL keeps working alongside it, which is
 	// what the MCP client falls back to.
 	"routes": [
-		{
+			   {
 			"pattern": "vc.engdawood.com",
 			"custom_domain": true
 		},
@@ -20,6 +20,7 @@
 			"custom_domain": true
 		},
 	],
+	"workers_dev": true,
 	"observability": {
 		"enabled": true
 	},
