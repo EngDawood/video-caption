@@ -28,6 +28,57 @@ const PORT = Number(process.env.PORT || 8080);
 const JOBS_DIR = process.env.JOBS_DIR || '/tmp/jobs';
 const FONTS_DIR = process.env.FONTS_DIR || '/usr/share/fonts/custom';
 
+/**
+ * `shaping=complex` is not cosmetic. It is what keeps Arabic legible.
+ *
+ * libass ships two shapers. The complex one hands the run to HarfBuzz, which
+ * applies the font's own GSUB rules to the canonical letters. The simple one
+ * calls FriBidi's `fribidi_shape` with the Arabic flags, which rewrites every
+ * letter into its Arabic Presentation Form *before* the glyph lookup, and
+ * writes U+FEFF (FriBidi's FRIBIDI_CHAR_FILL) into the slot the lam-alef
+ * ligature consumes. Almost no Arabic font ships that deprecated block whole:
+ * Al Jazeera has 125 of the 144 Presentation Forms-B codepoints, Cairo 89, and
+ * of everything bundled here only Noto Naskh and Dubai have U+FEFF at all. So
+ * under simple shaping each missing form is drawn as .notdef, which is a box
+ * inside the word and one before every لا, from text that is clean canonical
+ * Arabic all the way to the filter.
+ *
+ * Hence the `ass` filter rather than `subtitles`: same libass renderer over the
+ * same file, but ffmpeg declares `shaping` only in `ass_options`, never in
+ * `subtitles_options` (libavfilter/vf_subtitles.c), so `ass` is the only place
+ * the engine can be named instead of assumed. `fontsdir` is shared by both.
+ * Whether libass can honour it is a build question — see `shaping` in /health.
+ */
+const SUBTITLES_FILTER = `ass=subs.ass:fontsdir=${FONTS_DIR}:shaping=complex`;
+
+/**
+ * `subtitles` is always compiled in; `ass` is a separate build flag. If an
+ * image ever turns up without it, a shaping bug beats a dead bot, so a burn
+ * falls back instead of failing.
+ */
+const SUBTITLES_FILTER_FALLBACK = `subtitles=subs.ass:fontsdir=${FONTS_DIR}`;
+
+/** How ffmpeg rejects a filtergraph. A real encode failure says none of this. */
+const FILTER_UNAVAILABLE =
+  /No such filter|Error initializing filter|Option '[^']+' not found|Unable to parse option|Error applying options to the filter/i;
+
+/**
+ * Run an ffmpeg command whose filtergraph burns the subtitles, retrying once
+ * with the fallback filter if — and only if — ffmpeg rejected the filtergraph
+ * itself. That happens before a frame is decoded, so the retry costs no
+ * encoding time, and any other failure is rethrown untouched.
+ */
+async function ffmpegWithSubtitles(build) {
+  try {
+    return await ffmpeg(build(SUBTITLES_FILTER));
+  } catch (err) {
+    if (!FILTER_UNAVAILABLE.test(err.detail || '')) throw err;
+    console.warn(`[ffmpeg] "${SUBTITLES_FILTER}" rejected, falling back to "${SUBTITLES_FILTER_FALLBACK}"`);
+    console.warn(err.detail);
+    return ffmpeg(build(SUBTITLES_FILTER_FALLBACK));
+  }
+}
+
 const WORK = path.join(JOBS_DIR, 'current');
 const INPUT = path.join(WORK, 'input.bin');
 const AUDIO = path.join(WORK, 'audio.mp3');
@@ -226,9 +277,9 @@ async function handleBurn(res, url) {
 
   // cwd is WORK, so the filter can reference `subs.ass` by bare name — no
   // Windows-style colon/backslash escaping headaches inside the filtergraph.
-  await ffmpeg([
+  await ffmpegWithSubtitles((filter) => [
     '-i', 'input.bin',
-    '-vf', `subtitles=subs.ass:fontsdir=${FONTS_DIR}`,
+    '-vf', filter,
     '-c:v', 'libx264',
     '-preset', preset,
     '-crf', crf,
@@ -259,11 +310,11 @@ async function handlePreview(res, url) {
   const at = Math.max(0, Number(url.searchParams.get('at') || 0));
   const preview = path.join(WORK, 'preview.jpg');
 
-  await ffmpeg([
+  await ffmpegWithSubtitles((filter) => [
     '-i', 'input.bin',
     '-ss', String(at),
     '-an',
-    '-vf', `subtitles=subs.ass:fontsdir=${FONTS_DIR}`,
+    '-vf', filter,
     '-frames:v', '1',
     '-q:v', '3',
     preview,
@@ -282,10 +333,29 @@ async function handleFonts(res) {
 async function handleHealth(res) {
   const version = await run('ffmpeg', ['-version'], { cwd: '/' });
   const filters = await run('sh', ['-c', 'ffmpeg -hide_banner -filters 2>/dev/null | grep -c " subtitles "'], { cwd: '/' });
+  const assFilter = await run('sh', ['-c', 'ffmpeg -hide_banner -filters 2>/dev/null | grep -c " ass "'], { cwd: '/' });
+  // Can libass honour `shaping=complex`? HarfBuzz is a link-time dependency:
+  // without it libass accepts the setting and shapes with FriBidi anyway, so
+  // the filter string alone proves nothing. `ldd` is the only honest answer,
+  // and `shapingOption` says the filter will accept the option at all.
+  const shaper = await run('sh', ['-c',
+    'lib=$(ls /usr/lib/libass.so.* 2>/dev/null | head -n1); '
+    + 'printf "%s\\n%s\\n%s" "${lib:-none}" '
+    + '"$(ldd "$lib" 2>/dev/null | grep -c harfbuzz)" '
+    + '"$(ffmpeg -hide_banner -h filter=subtitles 2>/dev/null | grep -c shaping)"',
+  ], { cwd: '/' });
+  const [libass = 'none', harfbuzz = '0', shapingOption = '0'] = shaper.stdout.split('\n');
   json(res, 200, {
     ok: true,
     ffmpeg: version.stdout.split('\n')[0] || null,
     subtitlesFilter: Number(filters.stdout.trim()) > 0,
+    shaping: {
+      filter: SUBTITLES_FILTER,
+      assFilter: Number(assFilter.stdout.trim()) > 0,
+      libass: libass.trim(),
+      harfbuzz: Number(harfbuzz.trim()) > 0,
+      shapingOption: Number(shapingOption.trim()) > 0,
+    },
   });
 }
 
@@ -332,6 +402,15 @@ server.listen(PORT, '0.0.0.0', async () => {
   if (!hasSubtitles) {
     console.error('[ffmpeg] this ffmpeg build has no subtitles filter — burn-in will fail');
   }
+  // Said at boot as well as in /health, because a libass without HarfBuzz
+  // burns Arabic as presentation forms and nothing downstream reports it —
+  // the bug arrives as a screenshot of boxes days later. See SUBTITLES_FILTER.
+  const shaper = await run('sh', ['-c',
+    'lib=$(ls /usr/lib/libass.so.* 2>/dev/null | head -n1); '
+    + 'printf "%s %s" "${lib:-none}" "$(ldd "$lib" 2>/dev/null | grep -c harfbuzz)"',
+  ], { cwd: '/' });
+  const [libass = 'none', harfbuzz = '0'] = shaper.stdout.trim().split(' ');
+  console.log(`[ffmpeg] shaping: ${SUBTITLES_FILTER}; ${libass} harfbuzz: ${Number(harfbuzz) > 0 ? 'yes' : 'NO — Arabic will render as presentation forms'}`);
 });
 
 // The platform sends SIGTERM before stopping the instance.

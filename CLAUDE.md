@@ -117,8 +117,28 @@ the change, so a font change costs one encode and a translator change costs no t
   Llama leaks stray tokens from other languages (a Chinese 几乎 landed mid-Arabic), and
   `translateText` used to retry only on a throw or an empty string, so anything else was burned
   in. A rejected answer is still kept over untranslated source text if the retry fails too.
-- **Boxes inside Arabic words are a character the font cannot draw, not a bidi bug.** libass hands
-  the string to HarfBuzz as it stands, so anything with no glyph is drawn as `.notdef` — a box on
+- **Boxes inside Arabic words are usually the shaper, not the text.** libass has two shapers and
+  only the complex one is correct for Arabic: it hands the run to HarfBuzz, which applies the
+  font's own GSUB to the canonical letters. The simple one calls FriBidi's `fribidi_shape` with
+  the Arabic flags, which rewrites every letter into its **Arabic Presentation Form** before the
+  glyph lookup and writes U+FEFF (`FRIBIDI_CHAR_FILL`) into the slot the lam-alef ligature
+  consumed. Almost no Arabic font ships that deprecated block whole — Al Jazeera and Neo Sans have
+  125 of the 144 Pres-B codepoints, Thmanyah 89, Cairo 89, Almarai 91 — and of everything bundled
+  only Noto Naskh and Dubai carry U+FEFF at all. So under simple shaping the missing forms draw as
+  `.notdef`: a box before every لا on Al Jazeera, and on Cairo also at the isolated forms ﻱ ﺃ ﺭ ﺍ ﺓ,
+  from cues that are clean canonical Arabic the whole way down. Nothing in `sanitize` can help,
+  because the presentation forms are created *after* the text leaves the Worker. `SUBTITLES_FILTER`
+  in `container/server.js` therefore burns through the **`ass` filter, not `subtitles`** — ffmpeg
+  declares `shaping` only in `ass_options`, so passing it to `subtitles=` fails the whole
+  filtergraph — and says `shaping=complex` rather than trusting libass's default. Whether libass
+  can honour it is a build question, so the boot log and `/health` both report whether it is linked
+  against HarfBuzz, and a rejected filtergraph falls back to `subtitles=` rather than failing the
+  burn (`ffmpegWithSubtitles`). `container/patch-fonts.py`
+  gives every TrueType font a zero-width U+FEFF glyph so the ligature filler is invisible even if
+  the renderer ever falls back. Noto Naskh Arabic is the only bundled font that renders correctly
+  under *either* shaper, which is what makes it the safe answer to a box report.
+- **A box can also be a character the font cannot draw, and that is not a bidi bug either.** libass
+  hands the string to HarfBuzz as it stands, so anything with no glyph is drawn as `.notdef` — a box on
   Al Jazeera (its `.notdef` is a rectangle), a blank gap on Thmanyah (CFF, empty `.notdef`). Four
   sources, all handled by `sanitize` in `src/captions/text.ts`:
   **U+FFFD**, which is what a UTF-8 decoder leaves where bytes were malformed. It looks like

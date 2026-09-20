@@ -18,6 +18,12 @@ RUN mkdir -p /out \
     done \
  && ls -la /out
 
+# Every font gets a zero-width glyph for U+FEFF, which is what FriBidi writes
+# into the slot a lam-alef ligature consumes if libass ever shapes without
+# HarfBuzz. Without the glyph that filler draws as a box before every لا.
+COPY container/patch-fonts.py /work/patch-fonts.py
+RUN python3 /work/patch-fonts.py /out
+
 # ---- stage 2: the actual ffmpeg service ----
 FROM alpine:3.20
 RUN apk add --no-cache nodejs ffmpeg fontconfig ttf-dejavu \
