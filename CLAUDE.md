@@ -117,7 +117,8 @@ the change, so a font change costs one encode and a translator change costs no t
   Llama leaks stray tokens from other languages (a Chinese 几乎 landed mid-Arabic), and
   `translateText` used to retry only on a throw or an empty string, so anything else was burned
   in. A rejected answer is still kept over untranslated source text if the retry fails too.
-- **Boxes inside Arabic words are usually the shaper, not the text.** libass has two shapers and
+- **Boxes inside Arabic words are usually the shaper, not the text — fixed, don't re-diagnose from
+  scratch.** libass has two shapers and
   only the complex one is correct for Arabic: it hands the run to HarfBuzz, which applies the
   font's own GSUB to the canonical letters. The simple one calls FriBidi's `fribidi_shape` with
   the Arabic flags, which rewrites every letter into its **Arabic Presentation Form** before the
@@ -137,6 +138,13 @@ the change, so a font change costs one encode and a translator change costs no t
   gives every TrueType font a zero-width U+FEFF glyph so the ligature filler is invisible even if
   the renderer ever falls back. Noto Naskh Arabic is the only bundled font that renders correctly
   under *either* shaper, which is what makes it the safe answer to a box report.
+  **Status: shipped**, merged 2026-09-20 (PR #13). Diagnosed from a real broken burn — the
+  reported box always sat immediately before لا, which is exactly where FriBidi's filler lands,
+  and the user's own `.srt` export ruled out the text as the cause before any of this was written.
+  Not yet confirmed against a real container burn, since this machine has no Docker; the open
+  check is a Cairo burn against the deployed image and a read of `/debug/fonts` for
+  `shaping.harfbuzz` — if that comes back `false`, the isolated-form gap on Cairo/Almarai/Dubai
+  (see above) is still live and needs the GSUB walk that was deliberately left unwritten.
 - **A box can also be a character the font cannot draw, and that is not a bidi bug either.** libass
   hands the string to HarfBuzz as it stands, so anything with no glyph is drawn as `.notdef` — a box on
   Al Jazeera (its `.notdef` is a rectangle), a blank gap on Thmanyah (CFF, empty `.notdef`). Four
