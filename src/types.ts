@@ -46,6 +46,12 @@ export interface Env {
    * link is a bare path; an API client on the same host can still join it.
    */
   API_BASE_URL?: string;
+  /**
+   * The Telegram chat whose /settings seed API and MCP jobs, so a job queued
+   * from outside the bot is captioned the way that chat would caption it.
+   * Unset means the deployed defaults above, with no chat's changes.
+   */
+  API_SETTINGS_CHAT_ID?: string;
 
   // secrets (wrangler secret put)
   TELEGRAM_BOT_TOKEN: string;

@@ -19,7 +19,7 @@ const settingsSchema = z
     ),
   )
   .describe(
-    'Only the fields that should differ from the deployed defaults. review and preview must be omitted or "off" — they pause on a Telegram card that does not exist here.',
+    'Only the fields that should differ from the bot owner\'s saved settings (or the deployed defaults when none are configured). review and preview must be omitted or "off" — they pause on a Telegram card that does not exist here.',
   );
 
 const jobId = z.string().min(1).max(128).describe('The jobId returned by submit_job');

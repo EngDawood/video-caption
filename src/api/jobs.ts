@@ -1,5 +1,5 @@
 import { reserveSlot } from './concurrency';
-import { ALL_FIELDS, defaults, isValid, type CaptionSettings } from '../captions/settings';
+import { ALL_FIELDS, defaults, isValid, loadSettings, type CaptionSettings } from '../captions/settings';
 import type { Env } from '../types';
 
 /** Thrown for anything wrong with the request itself — the caller turns this into the HTTP response. */
@@ -23,12 +23,24 @@ export interface JobStatusResponse {
 }
 
 /**
- * Every field is required — there is no chat to fall back to defaults from,
- * unlike a Telegram job. `defaults(env)` seeds the deployed vars so a client
- * only has to name what it wants to differ.
+ * The settings a client's fields are laid over: API_SETTINGS_CHAT_ID's saved
+ * /settings when it names a chat, otherwise the deployed defaults — so a
+ * client only has to name what it wants to differ.
  */
-function parseSettings(env: Env, input: unknown): CaptionSettings {
-  const settings = { ...defaults(env), ...(input && typeof input === 'object' ? input : {}) } as CaptionSettings;
+async function baseSettings(env: Env): Promise<CaptionSettings> {
+  const chatId = Number(env.API_SETTINGS_CHAT_ID);
+  if (!env.API_SETTINGS_CHAT_ID || !Number.isSafeInteger(chatId)) return defaults(env);
+
+  // The chat's own 📝/🖼 gates would pause on a Telegram card this job never
+  // posts; only a client that asks for them explicitly is refused below.
+  return { ...(await loadSettings(env, chatId)), review: 'off', preview: 'off' };
+}
+
+async function parseSettings(env: Env, input: unknown): Promise<CaptionSettings> {
+  const settings = {
+    ...(await baseSettings(env)),
+    ...(input && typeof input === 'object' ? input : {}),
+  } as CaptionSettings;
 
   for (const field of ALL_FIELDS) {
     if (!isValid(field, settings[field])) {
@@ -81,7 +93,7 @@ export async function submitJob(env: Env, body: unknown): Promise<JobSubmission>
   }
 
   const callbackUrl = parseCallbackUrl(req.callbackUrl);
-  const settings = parseSettings(env, req.settings);
+  const settings = await parseSettings(env, req.settings);
 
   const jobId = crypto.randomUUID();
   if (!(await reserveSlot(env, jobId))) {

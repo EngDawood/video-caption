@@ -151,6 +151,11 @@
 		// ever set, delete it (`npx wrangler secret delete ADMIN_CHAT_ID`) or
 		// the two bindings collide.
 		"ADMIN_CHAT_ID": "801062947",
+		// The chat whose /settings API and MCP jobs are captioned with, so a job
+		// queued from outside the bot matches what that chat would get. A
+		// client's own `settings` still override it field by field. Remove to
+		// fall back to the deployed defaults above.
+		"API_SETTINGS_CHAT_ID": "801062947",
 		// This Worker's own public URL, used only to build the download link a
 		// webhook callback receives — a Workflow instance has no request to read
 		// an origin from. Update after the first deploy, or whenever a custom
