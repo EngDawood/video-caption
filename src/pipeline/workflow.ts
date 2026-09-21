@@ -6,7 +6,9 @@ import {
   type WorkflowStepConfig,
   type WorkflowTimeoutDuration,
 } from 'cloudflare:workers';
-import { fitSegments, transcribeChunk, translateSegments } from './ai';
+import { fitSegments } from './fit';
+import { TRANSCRIBE_LEAD_SECONDS, transcribeChunk } from './stt';
+import { translateSegments } from './translate';
 import { channelFor } from './channel';
 import { fetchMedia, maxSourceBytes, resolveVideo } from '../media/download';
 import { assetKeys } from '../media/assets';
@@ -117,8 +119,12 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
 
           const segments = (await step.do(`transcribe-${i}`, longStep('5 minutes'), async () => {
             await say(`⏳ Transcribing… (${i + 1}/${chunkCount})`);
-            const audio = await this.withVideoLoaded(jobId, keys.input, () => ffmpeg.audioSlice(start, dur));
-            return transcribeChunk(env, audio, start, dur, settings.sourceLang, settings.stt);
+            const audio = await this.withVideoLoaded(
+              jobId,
+              keys.input,
+              () => ffmpeg.audioSlice(start, dur, TRANSCRIBE_LEAD_SECONDS),
+            );
+            return transcribeChunk(env, audio, start, dur, settings.sourceLang, settings.stt, TRANSCRIBE_LEAD_SECONDS);
           })) as Segment[];
 
           transcribed.push(...segments);

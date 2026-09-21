@@ -1,6 +1,6 @@
 import type { FfmpegContainer } from './media/container';
 import type { CaptionSettings } from './captions/settings';
-import type { CaptionPosition, CaptionPreset, CaptionSize } from './captions/subtitles';
+import type { CaptionPosition, CaptionPreset, CaptionSize } from './captions/options';
 
 export interface Env {
   AI: Ai;
@@ -58,7 +58,7 @@ export interface Env {
   /**
    * NVIDIA NIM key for the Riva translator. Unset means picking 🧠 Riva on the
    * menu fails that job's translation step rather than silently falling back
-   * — see `nvidiaTranslate` in `pipeline/ai.ts`.
+   * — see `nvidiaTranslate` in `pipeline/translators.ts`.
    */
   NVIDIA_API_KEY?: string;
   /**

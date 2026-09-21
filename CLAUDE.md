@@ -49,14 +49,14 @@ the container had already been released before the translation anyway.
 
 🖼 **Check preview** stops at the same point on the same card, with one burned frame in place of
 the `.srt`; both on posts both above one card. The frame is rendered by `renderPreview` in
-`src/bot/edit.ts`, in a container of its own (`preview-<jobId>`), which is why `offer-review` is a
+`src/bot/edit/preview.ts`, in a container of its own (`preview-<jobId>`), which is why `offer-review` is a
 long step — the workflow's own container stays stopped through it. Off by default: it costs an
 extra container wake and video upload per approved video.
 
 **Preview-only auto-burns after 10s of silence** — a frame is a glance, not something to read, so
 `workflow.ts` follows the offer with `step.sleep('preview-timeout', '10 seconds')` and then queues
 the same `restyle` re-run ✅ Burn it would, over the exact jobId (`restyle-${token}-${code}`) that
-button uses. Whichever fires first, the tap or the timeout, wins; `queueRestyle` in `bot/edit.ts`
+button uses. Whichever fires first, the tap or the timeout, wins; `queueRestyle` in `bot/edit/rerun.ts`
 reads the collision back with `CAPTION_WORKFLOW.get` instead of matching on the create error, so
 the loser is a silent no-op rather than a second burn. 📝 **Check script** does *not* get this
 timer — reading a script and pasting back a correction takes real time, so that path still waits
@@ -64,18 +64,22 @@ for the tap with no timeout. Turning both on together also skips the timer, for 
 
 A finished run leaves the input video and `segments.json` (transcript **and** translation) in R2
 for 24h, which is what lets the ✏️ Edit card re-run at four depths — `full`, `retranscribe`,
-`retranslate`, `restyle`. `pickMode` in `src/bot/edit.ts` picks the shallowest one that can serve
+`retranslate`, `restyle`. `pickMode` in `src/bot/edit/rerun.ts` picks the shallowest one that can serve
 the change, so a font change costs one encode and a translator change costs no transcription.
 
 ## Key files
 
 | File | Role |
 |------|------|
-| `src/pipeline/ai.ts` | STT provider chain, sentence grouping, translation |
+| `src/pipeline/stt.ts` | STT provider chain, provider-payload normalisation |
+| `src/pipeline/translate.ts` | Sentence grouping, translation, target-script checks and leak repair |
+| `src/pipeline/translators.ts` | One transport per translator `kind` (Workers AI chat/mt, NVIDIA) |
+| `src/pipeline/fit.ts` | Fitting stored cues to a line length at burn time (`fitSegments`) |
 | `src/pipeline/workflow.ts` | Stage orchestration and what gets stored in R2 |
 | `src/captions/settings.ts` | Every user-facing setting; menus and validation derive from `MENUS` |
+| `src/captions/options.ts` | Colour, background and position tables — a leaf `settings.ts` and `subtitles.ts` both import, so neither imports the other for them |
 | `src/captions/subtitles.ts` | ASS generation, presets, RTL shaping |
-| `src/bot/edit.ts` | Per-video re-run card |
+| `src/bot/edit.ts` | Per-video card callback router; the pieces live in `src/bot/edit/` |
 | `src/bot/menu.ts` | `/settings` keyboards, shared with the edit card via `MenuScope` |
 | `src/captions/text.ts` | Strips what no caption font can draw — see the tofu gotcha below |
 
@@ -98,7 +102,7 @@ the change, so a font change costs one encode and a translator change costs no t
   frame instead of clipping it — so a fixed 42 fails silently on the 9:16 videos most uploads are,
   stacking every cue into two or three lines over the picture. It only ever shortens: the ceiling
   is the 42-character broadcast norm, not the widest line that fits. `fitSegments` in
-  `src/pipeline/ai.ts` is the single call the burn *and* the 🖼 preview make — a preview rendered
+  `src/pipeline/fit.ts` is the single call the burn *and* the 🖼 preview make — a preview rendered
   at a different limit from the burn is worse than no preview — and it is also what adds the
   reading-rate cap, which is `auto`-only. That cap does not buy reading time (splitting a cue
   halves its span too); it splits a line that would flash full-width for half a second into two
@@ -190,7 +194,7 @@ the change, so a font change costs one encode and a translator change costs no t
 - **`abandon(..., purge)` must be false for re-runs.** Purging on a failed re-transcribe would
   delete the assets behind a video the user already has.
 - **Hand-corrected text lives in `segments.json`, so a re-translate discards it.** ✍️ Fix text
-  (`src/bot/edit.ts`) writes corrections straight into the stored cues and re-burns with a plain
+  (`src/bot/edit/script.ts`) writes corrections straight into the stored cues and re-burns with a plain
   `restyle` — there is no fifth mode, because `restyle` already burns whatever that object holds.
   `retranslate` and `retranscribe` rewrite it from the transcript, which is why the confirmation
   says so before offering that button. Deleting a cue drops its transcript run too, so a
@@ -201,7 +205,7 @@ the change, so a font change costs one encode and a translator change costs no t
   `refitSegments` repeats it as the backstop for cues already stored in R2.
 - **A correction is addressed by its timestamp, not its index.** The cue list is posted as `<pre>`
   blocks so Telegram gives each one a copy button, and a pasted-back block is matched on start
-  time within 0.6 s. `BLOCK` in `edit.ts` is also the predicate deciding whether a plain message
+  time within 0.6 s. `BLOCK` in `bot/edit/corrections.ts` is also the predicate deciding whether a plain message
   is a correction at all, so loosening it makes ordinary chat start hitting KV.
 
 ## Environment
