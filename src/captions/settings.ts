@@ -7,7 +7,7 @@ import {
   type CaptionPreset,
   type CaptionSize,
   type TextColorId,
-} from './subtitles';
+} from './options';
 import type { Env } from '../types';
 
 /**
@@ -133,7 +133,7 @@ export type SttProviderId = keyof typeof STT_PROVIDERS;
  * `nvidia` is the one external provider — its own HTTPS endpoint, its own key
  * (`NVIDIA_API_KEY`) and a rigid prompt shape none of the Workers AI models
  * use, so it gets its own `kind` rather than being forced into `chat`. See
- * `nvidiaTranslate` in `ai.ts`.
+ * `nvidiaTranslate` in `translators.ts`.
  *
  * Append only, like every other option list here — `encodeSettings` puts
  * this order on the buttons.

@@ -342,7 +342,7 @@ async function handleHealth(res) {
     'lib=$(ls /usr/lib/libass.so.* 2>/dev/null | head -n1); '
     + 'printf "%s\\n%s\\n%s" "${lib:-none}" '
     + '"$(ldd "$lib" 2>/dev/null | grep -c harfbuzz)" '
-    + '"$(ffmpeg -hide_banner -h filter=subtitles 2>/dev/null | grep -c shaping)"',
+    + '"$(ffmpeg -hide_banner -h filter=ass 2>/dev/null | grep -c shaping)"',
   ], { cwd: '/' });
   const [libass = 'none', harfbuzz = '0', shapingOption = '0'] = shaper.stdout.split('\n');
   json(res, 200, {
