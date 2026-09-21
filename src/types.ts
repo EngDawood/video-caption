@@ -146,7 +146,7 @@ export interface CaptionJob {
    */
   settings?: CaptionSettings;
   /** Where progress and the finished video go. See the class doc above. */
-  channel?: { type: 'webhook'; callbackUrl: string };
+  channel?: { type: 'webhook'; callbackUrl?: string };
 }
 
 export interface VideoMeta {

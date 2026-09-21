@@ -13,7 +13,7 @@
 | Message | Cause |
 |---------|-------|
 | `sourceUrl is required` | Field missing or empty |
-| `callbackUrl is required` | Field missing. There is no way to submit without one |
+| `callbackUrl must be a string` | A non-string value. Omit the field instead |
 | `callbackUrl must be https://` | An `http://` URL. TLS only |
 | `callbackUrl must be a valid URL` | Unparseable string |
 | `settings.<field>: "x" is not one of the options this bot offers` | Off-menu value — check `references/settings.md` |

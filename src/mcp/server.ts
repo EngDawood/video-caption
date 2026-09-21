@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { ApiJobError, jobStatus, submitJob } from '../api/jobs';
 import { signedOutputUrl } from '../api/output';
 import { ALL_FIELDS, MENUS } from '../captions/settings';
-import { assetKeys } from '../media/assets';
+import { buildSrt } from '../bot/edit/script';
+import { assetKeys, loadCues } from '../media/assets';
 import type { Env } from '../types';
 
 // Built from MENUS so tools/list advertises the same option values submitJob validates against.
@@ -42,10 +43,13 @@ function createServer(env: Env): McpServer {
     {
       title: 'Caption a social video',
       description:
-        'Use this when the user wants a video from a TikTok, Instagram, YouTube, X, Facebook or Threads post transcribed, translated and re-delivered with the translated captions burned in. Starts a new paid job on every call, so do not call it again to check on a job — use job_status for that. Requires an https callbackUrl that receives progress and the finished video; a direct file link is not accepted as sourceUrl.',
+        'Use this when the user wants a video from a TikTok, Instagram, YouTube, X, Facebook or Threads post transcribed, translated and re-delivered with the translated captions burned in. Starts a new paid job on every call, so do not call it again to check on a job — poll job_status for progress instead. A direct file link is not accepted as sourceUrl.',
       inputSchema: z.object({
         sourceUrl: z.url({ protocol: /^https?$/ }).describe('Public post URL on a supported platform, not a direct media file link'),
-        callbackUrl: z.url({ protocol: /^https$/, error: 'must be an https:// URL' }).describe('https:// endpoint that receives progress and completion webhooks'),
+        callbackUrl: z
+          .url({ protocol: /^https$/, error: 'must be an https:// URL' })
+          .optional()
+          .describe('Optional https:// endpoint that also receives progress and completion webhooks. Omit it unless the user gives one.'),
         settings: settingsSchema.optional(),
       }),
       outputSchema: z.object({ jobId: z.string().describe('Pass to job_status and get_output') }),
@@ -69,13 +73,17 @@ function createServer(env: Env): McpServer {
     {
       title: 'Check a caption job',
       description:
-        'Use this when the user asks whether a caption job queued with submit_job has finished or failed. Returns the job state only; once it reports complete, call get_output for the video.',
+        'Use this when the user asks how a caption job queued with submit_job is going, or whether it has finished or failed. Returns the state and the stage it is at; once it reports complete, call get_output for the video and its script.',
       inputSchema: z.object({ jobId }),
       outputSchema: z.object({
         jobId: z.string(),
         status: z
           .string()
           .describe('queued, running, paused, waiting, waitingForPause, complete, errored, terminated or unknown'),
+        progress: z
+          .string()
+          .optional()
+          .describe('The latest stage, e.g. "⏳ Transcribing… (2/5)"; can lag a few seconds behind the job'),
         error: z.string().optional().describe('Why the job failed, when status is errored'),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -96,14 +104,18 @@ function createServer(env: Env): McpServer {
   server.registerTool(
     'get_output',
     {
-      title: 'Get a captioned video link',
+      title: 'Get a captioned video and its script',
       description:
-        "Use this when a job's status is complete and the user wants the captioned video. Returns a download URL rather than the MP4 itself, which is too large to return inline; ready is false until the video exists. The URL is signed and opens directly in a browser for 24 hours — share it with the user as a link.",
+        "Use this when a job's status is complete and the user wants the captioned video. Returns a download URL rather than the MP4 itself, which is too large to return inline; ready is false until the video exists. The URL is signed and opens directly in a browser for 24 hours — share it with the user as a link. Also returns the script that was burned in, as SRT with each cue's original line (🗣) above its translation (💬); show it when the user wants to read or check the captions.",
       inputSchema: z.object({ jobId }),
       outputSchema: z.object({
         jobId: z.string(),
         ready: z.boolean().describe('Whether the captioned video can be downloaded yet'),
         url: z.string().describe('Signed MP4 download link, valid for 24 hours'),
+        script: z
+          .string()
+          .optional()
+          .describe('The captions as SRT, original line above translation; absent once the job has expired'),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       _meta: {
@@ -112,8 +124,9 @@ function createServer(env: Env): McpServer {
       },
     },
     async ({ jobId }) => {
-      const head = await env.MEDIA.head(assetKeys(jobId).output);
-      return result({ jobId, ready: head !== null, url: await signedOutputUrl(env, jobId) });
+      const [head, cues] = await Promise.all([env.MEDIA.head(assetKeys(jobId).output), loadCues(env, jobId)]);
+      const script = cues && cues.segments.length > 0 ? buildSrt(cues) : undefined;
+      return result({ jobId, ready: head !== null, url: await signedOutputUrl(env, jobId), script });
     },
   );
 

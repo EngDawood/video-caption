@@ -2,6 +2,7 @@ import { sendEditCard, sendReviewCard, type ReviewCard } from '../bot/edit';
 import { cancelKeyboard } from '../bot/jobs';
 import { telegram } from '../bot/telegram';
 import { releaseSlot } from '../api/concurrency';
+import { recordProgress } from '../api/progress';
 import { outputUrl } from '../api/output';
 import type { CaptionSettings } from '../captions/settings';
 import type { CaptionJob, Env } from '../types';
@@ -89,9 +90,16 @@ function telegramChannel(env: Env, job: CaptionJob): Channel {
  * A failed POST is logged and swallowed rather than thrown: the run itself
  * already succeeded or failed on its own terms, and a client that never gets
  * a callback can still poll `GET /api/jobs/{id}`.
+ *
+ * `callbackUrl` is optional — an MCP client in a chat has nowhere to receive
+ * one — so every line is also recorded for `jobStatus` to read back, which is
+ * the only progress a polling client ever sees.
  */
-function webhookChannel(env: Env, job: CaptionJob, callbackUrl: string): Channel {
+function webhookChannel(env: Env, job: CaptionJob, callbackUrl: string | undefined): Channel {
   const post = async (body: Record<string, unknown>) => {
+    const line = typeof body.message === 'string' ? body.message : typeof body.error === 'string' ? `❌ Failed: ${body.error}` : null;
+    if (line) await recordProgress(env, job.jobId, line);
+    if (!callbackUrl) return;
     try {
       const res = await fetch(callbackUrl, {
         method: 'POST',
@@ -123,7 +131,7 @@ function webhookChannel(env: Env, job: CaptionJob, callbackUrl: string): Channel
     },
 
     async deliver() {
-      await post({ event: 'completed', downloadUrl: outputUrl(env, job.jobId) });
+      await post({ event: 'completed', message: '✅ Done.', downloadUrl: outputUrl(env, job.jobId) });
       await releaseSlot(env, job.jobId);
     },
 

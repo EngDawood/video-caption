@@ -18,24 +18,13 @@ export class FfmpegContainer extends Container<Env> {
   // Everything it needs is handed to it over the binding — no egress required.
   enableInternet = false;
 
-  private booted = false;
-
-  override async fetch(request: Request): Promise<Response> {
-    await this.ctx.blockConcurrencyWhile(async () => {
-      if (!this.booted) {
-        await this.startAndWaitForPorts();
-        this.booted = true;
-      }
-    });
-    return super.fetch(request);
-  }
+  // No fetch override: the base class's containerFetch already starts the
+  // container when it is not healthy. Wrapping that start in
+  // blockConcurrencyWhile, as this class once did, holds the input gate for
+  // the whole cold boot — and the runtime cancels a gate held past ~30s and
+  // resets the Durable Object, failing the step on any slow start.
 
   override onError(error: unknown) {
     console.error('[container] error', error);
-    this.booted = false;
-  }
-
-  override onStop() {
-    this.booted = false;
   }
 }

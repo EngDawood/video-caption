@@ -1,4 +1,5 @@
 import { reserveSlot } from './concurrency';
+import { readProgress } from './progress';
 import { ALL_FIELDS, defaults, isValid, loadSettings, type CaptionSettings } from '../captions/settings';
 import type { Env } from '../types';
 
@@ -19,6 +20,8 @@ export interface JobSubmission {
 export interface JobStatusResponse {
   jobId: string;
   status: string;
+  /** The latest progress line, e.g. "⏳ Transcribing… (2/5)". */
+  progress?: string;
   error?: string;
 }
 
@@ -64,8 +67,10 @@ async function parseSettings(env: Env, input: unknown): Promise<CaptionSettings>
   return settings;
 }
 
-function parseCallbackUrl(input: unknown): string {
-  if (typeof input !== 'string' || !input) throw new ApiJobError('callbackUrl is required');
+/** Optional: a client with nowhere to receive callbacks polls `jobStatus` instead. */
+function parseCallbackUrl(input: unknown): string | undefined {
+  if (input === undefined || input === null || input === '') return undefined;
+  if (typeof input !== 'string') throw new ApiJobError('callbackUrl must be a string');
   let parsed: URL;
   try {
     parsed = new URL(input);
@@ -106,21 +111,21 @@ export async function submitJob(env: Env, body: unknown): Promise<JobSubmission>
       jobId,
       sourceUrl: req.sourceUrl,
       settings,
-      channel: { type: 'webhook', callbackUrl },
+      channel: callbackUrl ? { type: 'webhook', callbackUrl } : { type: 'webhook' },
     },
   });
 
   return { jobId };
 }
 
-/** Poll a job's state — a supplement to the callback, not a replacement for it. */
+/** Poll a job's state — the only progress a job submitted without a callbackUrl reports. */
 export async function jobStatus(env: Env, jobId: string): Promise<JobStatusResponse> {
   if (!env.CAPTION_WORKFLOW) throw new ApiJobError('the workflow binding is not configured', 500);
 
   try {
     const instance = await env.CAPTION_WORKFLOW.get(jobId);
-    const status = await instance.status();
-    return { jobId, status: status.status, error: status.error?.message };
+    const [status, progress] = await Promise.all([instance.status(), readProgress(env, jobId)]);
+    return { jobId, status: status.status, progress, error: status.error?.message };
   } catch {
     throw new ApiJobError('no such job', 404);
   }

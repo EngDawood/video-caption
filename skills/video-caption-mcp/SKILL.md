@@ -49,8 +49,8 @@ just called, that var is stale on the deployment — the job itself is fine.
 | Tool | Call it when | Returns |
 |------|--------------|---------|
 | `submit_job` | The user wants a video captioned | `{ jobId }` |
-| `job_status` | Checking whether that job finished | `{ jobId, status, error? }` |
-| `get_output` | Status is `complete` | `{ jobId, ready, url }` |
+| `job_status` | Checking how that job is going | `{ jobId, status, progress?, error? }` |
+| `get_output` | Status is `complete` | `{ jobId, ready, url, script? }` |
 
 Run them in that order. Never re-call `submit_job` to check on a job — that starts a second run and
 returns a different `jobId`.
@@ -60,7 +60,6 @@ returns a different `jobId`.
 ```json
 {
   "sourceUrl": "https://www.tiktok.com/@user/video/123",
-  "callbackUrl": "https://example.com/hooks/caption",
   "settings": { "targetLang": "ar", "font": "almarai" }
 }
 ```
@@ -69,20 +68,17 @@ returns a different `jobId`.
 direct `.mp4`/CDN file link is not accepted: the URL goes through the same resolver a Telegram link
 does. If the user pastes a file link, ask for the post it came from.
 
-**`callbackUrl`** — required, and must be `https://`. There is no way to submit a job without one.
-Every progress and completion event is POSTed there as JSON. A failed POST is logged and swallowed,
-so a callback endpoint that does not exist does not break the run:
-
-> With no receiver to point at, pass an https endpoint the user controls (or a request-bin style
-> URL) and **poll `job_status` instead**. Do not invent a plausible-looking URL for someone else's
-> domain.
+**`callbackUrl`** — optional, `https://` only. Omit it unless the user gives one: `job_status`
+reports the same progress to a polling client. When set, every progress and completion event is
+also POSTed there as JSON. A failed POST is logged and swallowed, so a callback endpoint that does
+not exist does not break the run. Never invent a URL on someone else's domain.
 
 Callback bodies all carry `jobId`:
 
 | Event | Body | Meaning |
 |-------|------|---------|
 | `progress` | `{ event, message }` | Stage narration |
-| `completed` | `{ event, downloadUrl }` | Done. That URL is the *unsigned* `/api/jobs/{id}/output` and needs `x-api-key` — use `get_output` for a link a person can open |
+| `completed` | `{ event, message, downloadUrl }` | Done. That URL is the *unsigned* `/api/jobs/{id}/output` and needs `x-api-key` — use `get_output` for a link a person can open |
 | `failed` | `{ event, error }` | The run failed |
 | `stopped` | `{ event, message }` | Ended with no video (e.g. no speech found) |
 
@@ -98,9 +94,13 @@ After submitting, wait and call `job_status`. A typical job is a few minutes —
 `errored`, `terminated`, `unknown`. Only `complete` means a video exists. `errored` carries `error`
 with the reason.
 
+`progress` is the latest stage line — `⏳ Downloading from tiktok…`, `⏳ Transcribing… (2/5)`,
+`⏳ Burning captions into the video…`, `✅ Done.` It is read from KV, so it can lag a few seconds
+behind the run. A job that is `complete` with no video (no speech found, too long) says why here.
+
 ## Getting the video
 
-`get_output` returns `{ jobId, ready, url }`.
+`get_output` returns `{ jobId, ready, url, script }`.
 
 - `ready: false` means the MP4 is not in R2 yet. **The `url` is returned anyway** and will 404 —
   only use it once `ready` is true and status is `complete`.
@@ -109,6 +109,9 @@ with the reason.
 - Never try to download and inline the MP4. It is tens of megabytes; the tool returns a link for
   exactly that reason.
 - R2 expires the object after two days regardless of the signature.
+- `script` is the captions as SRT: each cue's original line (🗣) above its translation (💬). It
+  comes with every call, so show it when the user wants to read or check the captions. It is absent
+  once the job's assets have expired.
 
 ## What gets a submission rejected
 
