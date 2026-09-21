@@ -70,7 +70,10 @@ export async function sendEditCard(
         { text: '📄 Script', callback_data: `ed:${token}:${code}` },
         { text: '🖼 Preview', callback_data: `ep:${token}:${code}` },
       ],
-      [{ text: '✖️ Cancel', callback_data: `ex:${token}` }],
+      [
+        { text: '📣 Post text', callback_data: `eo:${token}:${code}` },
+        { text: '✖️ Cancel', callback_data: `ex:${token}` },
+      ],
     ];
     await tg.sendMessage(
       chatId,

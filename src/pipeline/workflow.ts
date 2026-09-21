@@ -8,7 +8,7 @@ import {
 } from 'cloudflare:workers';
 import { fitSegments } from './fit';
 import { TRANSCRIBE_LEAD_SECONDS, transcribeChunk } from './stt';
-import { translateSegments } from './translate';
+import { asSpoken, translateSegments } from './translate';
 import { channelFor } from './channel';
 import { fetchMedia, maxSourceBytes, resolveVideo } from '../media/download';
 import { assetKeys } from '../media/assets';
@@ -175,17 +175,23 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
       //    the translation next to the video. Those objects are what let a
       //    later re-run restart from the middle instead of the top.
       if (translates && transcript.length > 0) {
-        const translated = (await step.do('translate', longStep('5 minutes'), async () => {
-          const language = shortLabel('targetLang', settings.targetLang);
-          await say(`⏳ Translating ${transcript.length} lines to ${language}…`);
-          return translateSegments(
-            env,
-            transcript,
-            settings.sourceLang,
-            settings.targetLang,
-            settings.translator,
-          );
-        })) as Segment[];
+        // 🌐 Original burns what was said: the transcript becomes the cues with
+        // no translator call at all, and so no step to retry either — it is a
+        // pure function of the transcript, which the steps above already hold.
+        const translated =
+          settings.targetLang === 'original'
+            ? asSpoken(transcript)
+            : ((await step.do('translate', longStep('5 minutes'), async () => {
+                const language = shortLabel('targetLang', settings.targetLang);
+                await say(`⏳ Translating ${transcript.length} lines to ${language}…`);
+                return translateSegments(
+                  env,
+                  transcript,
+                  settings.sourceLang,
+                  settings.targetLang,
+                  settings.translator,
+                );
+              })) as Segment[]);
 
         await step.do('store-cues', RETRY, async () => {
           await env.MEDIA.put(

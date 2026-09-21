@@ -102,7 +102,7 @@ export function fitSegments(
 ): Segment[] {
   return refitSegments(
     segments,
-    charLimitFor(settings, meta),
+    charLimitFor(settings, meta, segments),
     // The reading-rate cap is part of what 'auto' means; a fixed limit is a
     // number the user chose and is left alone.
     settings.chars === 'auto' ? { charsPerSecond: AUTO_CHARS_PER_SECOND } : {},

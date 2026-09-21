@@ -130,6 +130,19 @@ const contextTail = (text?: string): string =>
   text ? text.slice(Math.max(0, text.length - TRANSLATION_CONTEXT_CHARS)) : '';
 const contextHead = (text?: string): string => (text ? text.slice(0, TRANSLATION_CONTEXT_CHARS) : '');
 
+/**
+ * The transcript as the cues to burn, for 🌐 Original — no translator call.
+ *
+ * Grouped into sentences exactly as a translation would be, so the stored cues
+ * have the same shape either way and `fitSegments` splits both the same way at
+ * the burn; and cleaned the same way `translateSegments` cleans its output.
+ */
+export function asSpoken(segments: Segment[]): Segment[] {
+  return groupForTranslation(segments)
+    .map((unit) => ({ ...unit, text: sanitize(unit.text).replace(/\s+/g, ' ').trim() }))
+    .filter((unit) => unit.text.length > 0);
+}
+
 export async function translateSegments(
   env: Env,
   segments: Segment[],
@@ -224,7 +237,7 @@ const countIn = (text: string, script: string): number =>
  * simply not translated: it is deliberately loose, because a line that is
  * mostly proper nouns is common and proves nothing on its own.
  */
-function isPlausible(text: string, target: string): boolean {
+export function isPlausible(text: string, target: string): boolean {
   const expected = TARGET_SCRIPT[target];
   if (!expected) return true;
   if (foreignLetter(expected).test(text)) return false;

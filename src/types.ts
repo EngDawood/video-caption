@@ -26,6 +26,10 @@ export interface Env {
   WHISPER_MODEL?: string;
   /** Default translation model. Must be one the 🧠 Translator menu offers. */
   TRANSLATION_MODEL?: string;
+  /** Workers AI chat model that writes the 📣 Post text. */
+  POST_TEXT_MODEL?: string;
+  /** Comma-separated language codes the 📣 Post text is written in, e.g. "ar,en". */
+  POST_TEXT_LANGUAGES?: string;
   CHUNK_SECONDS: string;
   MAX_VIDEO_SECONDS: string;
   /** Longest caption line before it is split into another cue. */

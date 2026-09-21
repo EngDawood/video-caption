@@ -1,5 +1,5 @@
 import { foreignCharacters, sanitize, unexpectedCharacters } from './text';
-import { FONTS, isRtlLang, type CaptionSettings } from './settings';
+import { FONTS, captionsRtl, type CaptionSettings } from './settings';
 import {
   COLOR,
   POSITIONS,
@@ -202,12 +202,13 @@ const AUTO_CHARS_MAX = 42;
 export function charLimitFor(
   settings: CaptionSettings,
   meta: Pick<VideoMeta, 'width' | 'height'>,
+  segments: Segment[],
 ): number {
   if (settings.chars !== 'auto') return Number(settings.chars) || 42;
 
   const width = meta.width || 1280;
   const height = meta.height || 720;
-  const rtl = isRtlLang(settings.targetLang);
+  const rtl = captionsRtl(settings, segments);
   const fontSize = fontSizeFor(height, settings.size, rtl);
   const usable = width * (1 - 2 * MARGIN_H_RATIO);
   const advance = fontSize * (rtl ? ADVANCE_RATIO.rtl : ADVANCE_RATIO.ltr);
@@ -397,7 +398,7 @@ export function buildAssForSettings(
     font: font.family,
     width: meta.width ?? 1280,
     height: meta.height ?? 720,
-    rtl: isRtlLang(settings.targetLang),
+    rtl: captionsRtl(settings, segments),
     preset: settings.preset,
     size: settings.size,
     position: settings.position,

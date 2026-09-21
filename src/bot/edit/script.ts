@@ -23,13 +23,15 @@ const CHUNK_LIMIT = 3500;
  *
  * <pre> is what buys that: Telegram renders it monospaced with a copy button,
  * so correcting a line is copy, edit the words, send — and the timestamps come
- * back untouched, which is how the correction finds its way home.
+ * back untouched, which is how the correction finds its way home. Under 🌐
+ * Original the transcript and the burned text are the same words, so the 🗣
+ * line would only repeat the 💬 one and is left out.
  */
 const blockFor = (cue: Segment, source: string) =>
   `<pre>${escapeHtml(
     [
       `${clock(cue.start)} --> ${clock(cue.end)}`,
-      ...(source ? [`${SOURCE_MARK} ${source}`] : []),
+      ...(source && source !== cue.text ? [`${SOURCE_MARK} ${source}`] : []),
       `${TARGET_MARK} ${cue.text}`,
     ].join('\n'),
   )}</pre>`;

@@ -10,6 +10,7 @@ import { fieldKeyboard, readChoice, rootKeyboard, shortLabel } from './menu';
 import { telegram } from './telegram';
 import type { Env } from '../types';
 import { MENU_TITLE, scopeFor } from './edit/cards';
+import { sendPostText } from './edit/post';
 import { sendPreview } from './edit/preview';
 import { revisionOf, startRestyle } from './edit/rerun';
 import { sendScript, startFix } from './edit/script';
@@ -51,6 +52,7 @@ export { handleTextCorrection } from './edit/script';
  *   eg:<token>:<code>             burn it again with this draft
  *   ed:<token>:<code>             send the whole script as an .srt file
  *   ep:<token>:<code>             send one burned frame near the first caption
+ *   eo:<token>:<code>             write the 📣 post text for publishing it
  *   et:<token>:<code>             list the cues and start taking corrections
  *   ef:<token>:<code>             burn the corrections
  *   er:<token>:<code>             translate a corrected transcript, then burn
@@ -58,7 +60,7 @@ export { handleTextCorrection } from './edit/script';
  */
 
 export function isEditCallback(data: string): boolean {
-  return /^e[msgxtfrdp]?:/.test(data);
+  return /^e[msgxtfrdpo]?:/.test(data);
 }
 
 /** Handle a tap anywhere in the per-video edit flow. */
@@ -155,6 +157,9 @@ export async function handleEditCallback(
 
     case 'ep':
       return sendPreview(env, chatId, callbackId, session, settings);
+
+    case 'eo':
+      return sendPostText(env, chatId, callbackId, session);
 
     case 'et':
       return startFix(env, chatId, callbackId, token, code, session);

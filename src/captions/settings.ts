@@ -103,6 +103,8 @@ export const TARGET_LANGUAGES = {
   tr: { label: 'Turkish' },
   ru: { label: 'Russian' },
   pt: { label: 'Portuguese' },
+  // Burns what was said, untranslated. Last because this list is append-only.
+  original: { label: 'Original — as spoken, no translation' },
 } as const;
 
 export type TargetLangId = keyof typeof TARGET_LANGUAGES;
@@ -111,6 +113,28 @@ export type TargetLangId = keyof typeof TARGET_LANGUAGES;
 const RTL_LANGS = new Set<string>(['ar', 'ur', 'fa']);
 
 export const isRtlLang = (lang: string): boolean => RTL_LANGS.has(lang);
+
+/** Arabic-script letters — Arabic, Persian and Urdu alike. */
+const ARABIC_LETTER = /\p{Script=Arabic}/gu;
+const ANY_LETTER = /\p{L}/gu;
+
+/**
+ * Whether the captions this burn draws read right-to-left.
+ *
+ * Normally the translation target says so. 🌐 Original has no target: the
+ * captions are in whatever was spoken, so the spoken-language setting decides,
+ * and under 🗣️ Auto-detect nothing does — the text itself is read instead, and
+ * mostly Arabic script means right-to-left.
+ */
+export function captionsRtl(settings: CaptionSettings, segments: { text: string }[]): boolean {
+  if (settings.targetLang !== 'original') return isRtlLang(settings.targetLang);
+  if (settings.sourceLang !== 'auto') return isRtlLang(settings.sourceLang);
+
+  const text = segments.map((s) => s.text).join(' ');
+  const letters = (text.match(ANY_LETTER) ?? []).length;
+  const arabic = (text.match(ARABIC_LETTER) ?? []).length;
+  return letters > 0 && arabic / letters >= 0.5;
+}
 
 /**
  * Which transcription provider is tried FIRST. The others still follow as
@@ -162,6 +186,37 @@ export const TRANSLATORS = {
 } as const;
 
 export type TranslatorId = keyof typeof TRANSLATORS;
+
+/**
+ * Models that write the 📣 Post text under a delivered video.
+ *
+ * Writing a hook worth posting is a harder job than translating a line, so the
+ * NVIDIA-hosted frontier models lead; they share `NVIDIA_API_KEY` with the Riva
+ * translator. Llama 3.3 70B on Workers AI is the one that needs no key, and is
+ * also what `writePostText` falls back to when the chosen model fails or runs
+ * out of time. `kind` has the same meaning as in `TRANSLATORS`.
+ *
+ * Append only — `encodeSettings` puts this order on the buttons.
+ */
+export const WRITERS = {
+  kimi: {
+    label: 'Kimi K3 — strongest',
+    model: 'moonshotai/kimi-k3',
+    kind: 'nvidia',
+  },
+  glm: {
+    label: 'GLM 5.3',
+    model: 'z-ai/glm-5.3',
+    kind: 'nvidia',
+  },
+  llama70b: {
+    label: 'Llama 3.3 70B — Cloudflare, no key',
+    model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    kind: 'chat',
+  },
+} as const;
+
+export type WriterId = keyof typeof WRITERS;
 
 /**
  * Whether a run stops and shows the script before it burns anything.
@@ -233,6 +288,8 @@ export interface CaptionSettings {
   confirm: ConfirmId;
   /** Stop and show one burned frame before the full encode. */
   preview: PreviewId;
+  /** Which model writes the 📣 Post text. */
+  writer: WriterId;
 }
 
 export type SettingsField = keyof CaptionSettings;
@@ -372,6 +429,11 @@ export const MENUS: Record<SettingsField, Menu> = {
     icon: '🖼',
     options: Object.entries(PREVIEW).map(([value, p]) => ({ value, label: p.label })),
   },
+  writer: {
+    label: 'Post writer',
+    icon: '📣',
+    options: Object.entries(WRITERS).map(([value, w]) => ({ value, label: w.label })),
+  },
 };
 
 /**
@@ -382,9 +444,11 @@ export const MENUS: Record<SettingsField, Menu> = {
  * burned by the time the card is posted, and the card is itself the place the
  * review would have happened. Nor can 🧾 Confirm settings: the run it gates
  * has already happened by then. 🖼 Check preview is the same — the card it
- * would gate is this one, and it carries a 🖼 Preview button already.
+ * would gate is this one, and it carries a 🖼 Preview button already. 📣 Post
+ * writer changes no video at all: the 📣 button reads it from the chat
+ * settings at tap time, so it is picked in /settings and nowhere else.
  */
-const CHAT_ONLY = new Set<SettingsField>(['review', 'confirm', 'preview']);
+const CHAT_ONLY = new Set<SettingsField>(['review', 'confirm', 'preview', 'writer']);
 
 /**
  * The one setting the 🧾 confirm card leaves out.
@@ -392,9 +456,10 @@ const CHAT_ONLY = new Set<SettingsField>(['review', 'confirm', 'preview']);
  * Everything else on it still shapes the run it is gating — including 📝 Check
  * script, which the ✏️ card cannot offer but this one is posted before. Turning
  * the card itself off *from* the card would only apply to the video already
- * showing it, which means nothing.
+ * showing it, which means nothing. 📣 Post writer is left out too: it shapes
+ * no run, and is read from the chat settings when 📣 is tapped.
  */
-const START_ONLY_EXCLUDED = new Set<SettingsField>(['confirm']);
+const START_ONLY_EXCLUDED = new Set<SettingsField>(['confirm', 'writer']);
 
 export const ALL_FIELDS = Object.keys(MENUS) as SettingsField[];
 
@@ -424,6 +489,7 @@ const CODE_FIELDS: SettingsField[] = [
   'review',
   'confirm',
   'preview',
+  'writer',
 ];
 
 /**
@@ -474,6 +540,9 @@ export function defaults(env: Env): CaptionSettings {
       (id) => TRANSLATORS[id].model === env.TRANSLATION_MODEL,
     ) ?? 'llama70b';
 
+  const writer =
+    (Object.keys(WRITERS) as WriterId[]).find((id) => WRITERS[id].model === env.POST_TEXT_MODEL) ?? 'kimi';
+
   return {
     preset: env.CAPTION_PRESET || 'clean',
     size: env.CAPTION_SIZE || 'medium',
@@ -496,6 +565,7 @@ export function defaults(env: Env): CaptionSettings {
     // approved video, and the same look is one tap away on the ✏️ card for
     // anyone who only wants to check now and then.
     preview: 'off',
+    writer,
   };
 }
 
