@@ -35,9 +35,11 @@ interface __BaseEnv_Env {
 	MISTRAL_API_KEY: string;
 	API_KEY: string;
 	NVIDIA_API_KEY: string;
+	COMPOSIO_API_KEY: string;
 	FFMPEG: DurableObjectNamespace<import("./src/index").FfmpegContainer>;
 	API_SLOTS: DurableObjectNamespace<import("./src/index").ApiSlots>;
 	CAPTION_WORKFLOW: Workflow<Parameters<import("./src/index").CaptionWorkflow['run']>[0]['payload']>;
+	PUBLISH_WORKFLOW: Workflow<Parameters<import("./src/index").PublishWorkflow['run']>[0]['payload']>;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {

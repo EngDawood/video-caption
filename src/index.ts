@@ -3,7 +3,7 @@ import { ApiJobError, jobStatus, submitJob } from './api/jobs';
 import { getOutput, hasValidSignature } from './api/output';
 import { handleMcp } from './mcp/server';
 import { extractSourceUrl, maxSourceBytes } from './media/download';
-import { handleEditCallback, handleTextCorrection, isEditCallback } from './bot/edit';
+import { handleEditCallback, handleShareReply, handleTextCorrection, isEditCallback } from './bot/edit';
 import {
   handleCancelCallback,
   handleOfferCallback,
@@ -25,6 +25,7 @@ import { usageReport } from './bot/usage';
 export { FfmpegContainer } from './media/container';
 export { ApiSlots } from './api/concurrency';
 export { CaptionWorkflow } from './pipeline/workflow';
+export { PublishWorkflow } from './social/publish';
 
 // The Bot API refuses to hand a bot any file larger than this.
 const TELEGRAM_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
@@ -291,6 +292,12 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
         await tg.sendMessage(chatId, info(env, settings, commandsFor(env, chatId)), message.message_id);
       } else if (command === '/start' || command === '/help') {
         await tg.sendMessage(chatId, help(env), message.message_id);
+      } else if (
+        message.reply_to_message &&
+        message.text &&
+        (await handleShareReply(env, chatId, message.message_id, message.reply_to_message.message_id, message.text))
+      ) {
+        // New wording for a 📤 card's post text, sent as a reply to that card.
       } else if (await handleTextCorrection(env, chatId, message.message_id, message.text ?? '')) {
         // A block copied out of the ✍️ list and sent back with the wording
         // fixed. It costs no KV read unless the text actually carries

@@ -87,8 +87,7 @@ function telegramChannel(env: Env, job: CaptionJob): Channel {
  * is a POST to the `callbackUrl` it was submitted with instead. The finished
  * video is never inlined in the callback body — it can be tens of MB — so
  * `deliver` sends a link to `GET /api/jobs/{id}/output` and leaves the bytes
- * in R2 for the client to fetch (see the `cleanup` step in `workflow.ts`,
- * which skips deleting `keys.output` for exactly this channel).
+ * in R2 for the client to fetch (see the `cleanup` step in `workflow.ts`).
  *
  * A failed POST is logged and swallowed rather than thrown: the run itself
  * already succeeded or failed on its own terms, and a client that never gets

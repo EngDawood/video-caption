@@ -5,6 +5,7 @@ import { telegram, type InlineKeyboard } from '../telegram';
 import type { Env } from '../../types';
 import { previewCaption, renderPreview } from './preview';
 import { sendScript } from './script';
+import { canShare } from './share';
 import { EDIT_TTL_SECONDS, fixKey, openSession, type FixSession } from './session';
 
 /** The ✏️ card after a delivery, and the 📝/🖼 card that stands in front of a burn. */
@@ -72,8 +73,10 @@ export async function sendEditCard(
       ],
       [
         { text: '📣 Post text', callback_data: `eo:${token}:${code}` },
-        { text: '✖️ Cancel', callback_data: `ex:${token}` },
+        // Only where posting is set up and allowed — see `canShare`.
+        ...(canShare(env, chatId) ? [{ text: '📤 Share', callback_data: `ei:${token}` }] : []),
       ],
+      [{ text: '✖️ Cancel', callback_data: `ex:${token}` }],
     ];
     await tg.sendMessage(
       chatId,

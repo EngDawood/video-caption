@@ -94,6 +94,12 @@
 			"name": "caption-workflow",
 			"binding": "CAPTION_WORKFLOW",
 			"class_name": "CaptionWorkflow"
+		},
+		// 📤 Share: posting a delivered video to an account connected in Composio.
+		{
+			"name": "publish-workflow",
+			"binding": "PUBLISH_WORKFLOW",
+			"class_name": "PublishWorkflow"
 		}
 	],
 	"vars": {
