@@ -14,6 +14,11 @@ export const assetKeys = (jobId: string) => ({
   input: `jobs/${jobId}/input.mp4`,
   output: `jobs/${jobId}/output.mp4`,
   segments: `jobs/${jobId}/segments.json`,
+  /**
+   * The text the video arrived with — typed or forwarded with an upload, or a
+   * linked post's own caption — as it came. Only the 📣 Post text reads it.
+   */
+  caption: `jobs/${jobId}/caption.txt`,
   /** An API job's post text, one entry per language — see `write-post-text` in workflow.ts. */
   post: `jobs/${jobId}/post.json`,
   /**
@@ -57,6 +62,12 @@ export async function saveCues(env: Env, jobId: string, cues: StoredCues): Promi
   await env.MEDIA.put(assetKeys(jobId).segments, JSON.stringify(cues));
 }
 
+/** The text the video arrived with, or null if it had none or it expired. */
+export async function loadPostCaption(env: Env, jobId: string): Promise<string | null> {
+  const object = await env.MEDIA.get(assetKeys(jobId).caption);
+  return object ? await object.text() : null;
+}
+
 /** The post text an API job wrote, by language code, or null if none was written or it expired. */
 export async function loadPostText(env: Env, jobId: string): Promise<Record<string, string> | null> {
   const object = await env.MEDIA.get(assetKeys(jobId).post);
@@ -66,7 +77,7 @@ export async function loadPostText(env: Env, jobId: string): Promise<Record<stri
 /** Drop everything a job stored. Safe to call twice. */
 export async function purgeAssets(env: Env, jobId: string): Promise<void> {
   const keys = assetKeys(jobId);
-  await env.MEDIA.delete([keys.input, keys.output, keys.segments, keys.post, keys.settings]).catch((err) => {
+  await env.MEDIA.delete([keys.input, keys.output, keys.segments, keys.caption, keys.post, keys.settings]).catch((err) => {
     console.error(`[assets] purge failed for ${jobId}:`, err);
   });
 }

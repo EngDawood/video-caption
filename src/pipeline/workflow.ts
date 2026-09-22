@@ -9,10 +9,10 @@ import {
 import { fitSegments } from './fit';
 import { TRANSCRIBE_LEAD_SECONDS, transcribeChunk } from './stt';
 import { asSpoken, translateSegments } from './translate';
-import { postTextLanguages, transcriptOf, writePostText } from './describe';
+import { postSourceOf, postTextLanguages, writePostText } from './describe';
 import { channelFor } from './channel';
 import { fetchMedia, maxSourceBytes, resolveVideo } from '../media/download';
-import { assetKeys } from '../media/assets';
+import { assetKeys, loadPostCaption } from '../media/assets';
 import { ffmpegFor } from '../media/ffmpeg';
 import { encodeSettings, loadSettings, type CaptionSettings } from '../captions/settings';
 import { buildAssForSettings } from '../captions/subtitles';
@@ -32,7 +32,7 @@ const EXPIRED = 'that video is no longer stored — send it again to caption it 
 
 export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
   async run(event: WorkflowEvent<CaptionJob>, step: WorkflowStep) {
-    const { jobId, chatId, fileId, sourceUrl } = event.payload;
+    const { jobId, chatId, fileId, sourceUrl, postCaption } = event.payload;
     const mode = event.payload.mode ?? 'full';
     // A re-burn reads the video and the cues the original run stored, so it
     // works under that job's prefix and overwrites that job's output.
@@ -84,12 +84,14 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
               await say(`⏳ Downloading from ${media.platform}…`);
               const bytes = await fetchMedia(media, maxSourceBytes(env));
               await env.MEDIA.put(keys.input, bytes);
+              if (media.caption) await env.MEDIA.put(keys.caption, media.caption);
               return { bytes: bytes.byteLength, platform: media.platform };
             }
 
             if (!fileId) throw new NonRetryableError('job has neither a file nor a link');
             const bytes = await tg.download(fileId);
             await env.MEDIA.put(keys.input, bytes);
+            if (postCaption) await env.MEDIA.put(keys.caption, postCaption);
             return { bytes: bytes.byteLength };
           });
         }
@@ -271,12 +273,15 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
       if (event.payload.channel?.type === 'webhook' && mode === 'full') {
         await step
           .do('write-post-text', RETRY, async () => {
-            const text = transcriptOf(transcript.length > 0 ? transcript : cues);
-            if (!text) return { languages: 0 };
+            const caption = await loadPostCaption(env, assetJobId);
+            const source = postSourceOf(transcript.length > 0 ? transcript : cues, caption);
+            if (!source) return { languages: 0 };
 
             await say('⏳ Writing the post text…');
             const languages = postTextLanguages(env);
-            const written = await Promise.all(languages.map((lang) => writePostText(env, settings.writer, text, lang)));
+            const written = await Promise.all(
+              languages.map((lang) => writePostText(env, settings.writer, source, lang)),
+            );
             const post = Object.fromEntries(
               languages.flatMap((lang, i) => (written[i] ? [[lang, written[i]] as const] : [])),
             );
@@ -389,7 +394,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
     await ffmpeg.cleanup();
     if (!purge) return;
     const keys = assetKeys(assetJobId);
-    await this.env.MEDIA.delete([keys.input, keys.output, keys.segments, keys.post, keys.settings]).catch(() => {});
+    await this.env.MEDIA.delete([keys.input, keys.output, keys.segments, keys.caption, keys.post, keys.settings]).catch(() => {});
   }
 
   /**

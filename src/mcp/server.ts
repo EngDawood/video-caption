@@ -115,7 +115,7 @@ function createServer(env: Env): McpServer {
     {
       title: 'Get a captioned video and its script',
       description:
-        "Use this when a job's status is complete and the user wants the captioned video. After restyle_job or fix_script, pass the jobId that tool returned. Returns a download URL rather than the MP4 itself, which is too large to return inline; ready is false until the video exists. The URL is signed and opens directly in a browser for 24 hours — share it with the user as a link. Also returns the script that was burned in, as SRT with each cue's original line (🗣) above its translation (💬); show it when the user wants to read or check the captions. When available, also returns postText: a ready-to-paste description for publishing the video on Facebook, Instagram or TikTok, one per language — offer it with the link.",
+        "Use this when a job's status is complete and the user wants the captioned video. After restyle_job or fix_script, pass the jobId that tool returned. Returns a download URL rather than the MP4 itself, which is too large to return inline; ready is false until the video exists. The URL is signed and opens directly in a browser for 24 hours — share it with the user as a link. Also returns the script that was burned in, as SRT with each cue's original line (🗣) above its translation (💬); show it when the user wants to read or check the captions. When available, also returns postText: a ready-to-paste description for publishing the video on Facebook, Instagram or TikTok, one per language, written from the speech and the linked post's own caption — offer it with the link.",
       inputSchema: z.object({ jobId }),
       outputSchema: z.object({
         jobId: z.string(),

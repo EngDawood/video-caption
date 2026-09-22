@@ -66,6 +66,8 @@ interface StartSession {
   fileId?: string;
   /** Social post URL, when the user sent a link instead. */
   sourceUrl?: string;
+  /** The caption sent with an uploaded video, for the 📣 Post text. */
+  postCaption?: string;
   /** The user's original message, so the result replies to it. */
   messageId: number;
   /** The one-line description of a resolved link, kept so redraws keep it. */
@@ -101,7 +103,9 @@ export async function startJob(
   env: Env,
   chatId: number,
   messageId: number,
-  source: { fileId: string; sourceUrl?: never } | { sourceUrl: string; fileId?: never },
+  source:
+    | { fileId: string; postCaption?: string; sourceUrl?: never }
+    | { sourceUrl: string; fileId?: never; postCaption?: never },
   settings?: CaptionSettings,
 ): Promise<void> {
   const tg = telegram(env.TELEGRAM_BOT_TOKEN);
@@ -451,7 +455,7 @@ export async function handleStartCallback(
       const source = session.sourceUrl
         ? ({ sourceUrl: session.sourceUrl } as const)
         : session.fileId
-          ? ({ fileId: session.fileId } as const)
+          ? { fileId: session.fileId, postCaption: session.postCaption }
           : null;
 
       if (!source) {

@@ -27,6 +27,8 @@ export interface ResolvedMedia {
   thumbnail?: string;
   quality?: string;
   filesize?: number;
+  /** The post's own text, as Telegram HTML. Untrusted: a stranger wrote it. */
+  caption?: string;
 }
 
 interface ApiMedia {
@@ -41,6 +43,7 @@ interface ApiResponse {
   platform?: string;
   media?: ApiMedia[];
   thumbnail?: string;
+  caption?: string;
   error?: string;
   message?: string;
   retryable?: boolean;
@@ -117,11 +120,12 @@ export async function resolveVideo(env: Env, postUrl: string): Promise<ResolvedM
   return {
     url: video.url,
     platform: data.platform ?? 'Link',
-    // The post's own text is deliberately not carried: it is untrusted
-    // third-party content and nothing downstream needs it.
     thumbnail: data.thumbnail,
     quality: video.quality,
     filesize: video.filesize,
+    // Carried for the 📣 Post text alone, which frames it as reference
+    // material rather than instructions. Nothing else reads it.
+    caption: data.caption || undefined,
   };
 }
 

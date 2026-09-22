@@ -327,17 +327,20 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
     }
 
     const settings = await loadSettings(env, chatId);
+    // Whatever was typed or forwarded with the video, which the 📣 Post text
+    // reads alongside the speech.
+    const upload = { fileId: video.fileId, postCaption: message.caption?.trim() || undefined };
 
     // With 🧾 Confirm settings on, an upload stops on the settings card rather
     // than starting: it is the only chance to change what this video is
     // captioned with before the transcription is paid for. A card that could
     // not be parked falls through to the job, so a video is never lost to it.
     if (settings.confirm === 'on') {
-      const asked = await sendStartCard(env, chatId, { fileId: video.fileId, messageId: message.message_id }, settings);
+      const asked = await sendStartCard(env, chatId, { ...upload, messageId: message.message_id }, settings);
       if (asked) return;
     }
 
-    await startJob(env, chatId, message.message_id, { fileId: video.fileId }, settings);
+    await startJob(env, chatId, message.message_id, upload, settings);
   } catch (err) {
     console.error('[webhook] failed to start job:', err);
     await tg.sendMessage(chatId, '❌ Could not start the job. Try again.').catch(() => {});

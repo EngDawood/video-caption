@@ -212,6 +212,13 @@ the change, so a font change costs one encode and a translator change costs no t
   ever ran on STT output, so a translator that doubled a space had it burned in — a cue short
   enough to skip `resegment` never has its words rejoined. `translateSegments` normalises now, and
   `refitSegments` repeats it as the backstop for cues already stored in R2.
+- **📣 Post text reads the text the video arrived with, not just the speech.** The caption typed
+  or forwarded with an upload rides in `params.postCaption`; a link's caption comes from the
+  download API's `caption` field when the workflow re-resolves the post. Both land in
+  `jobs/<id>/caption.txt` during `fetch-video`, which is what lets the ✏️ card's 📣 button read it
+  later. `captionOf` in `describe.ts` strips the Telegram HTML, links and a trailing hashtag run.
+  A link's caption is a stranger's text, so the prompt frames it as reference, never instructions.
+  Not every platform returns one.
 - **A correction is addressed by its timestamp, not its index.** The cue list is posted as `<pre>`
   blocks so Telegram gives each one a copy button, and a pasted-back block is matched on start
   time within 0.6 s. `BLOCK` in `bot/edit/corrections.ts` is also the predicate deciding whether a plain message
