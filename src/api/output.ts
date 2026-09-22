@@ -1,4 +1,4 @@
-import { assetKeys } from '../media/assets';
+import { assetJobIdOf, assetKeys } from '../media/assets';
 import type { Env } from '../types';
 
 /**
@@ -16,7 +16,7 @@ export function outputUrl(env: Env, jobId: string): string {
 /** Long enough to open the link later that day; R2 expires the video after two anyway. */
 const SIGNED_LINK_SECONDS = 24 * 60 * 60;
 
-async function signature(key: string, jobId: string, expires: number): Promise<ArrayBuffer> {
+async function hmac(key: string, message: string): Promise<ArrayBuffer> {
   const hmacKey = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(key),
@@ -24,10 +24,25 @@ async function signature(key: string, jobId: string, expires: number): Promise<A
     false,
     ['sign'],
   );
-  return crypto.subtle.sign('HMAC', hmacKey, new TextEncoder().encode(`output:${jobId}:${expires}`));
+  return crypto.subtle.sign('HMAC', hmacKey, new TextEncoder().encode(message));
 }
 
+const signature = (key: string, jobId: string, expires: number) => hmac(key, `output:${jobId}:${expires}`);
+
 const toHex = (buf: ArrayBuffer) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+
+/**
+ * Headers proving a callback came from this Worker: HMAC-SHA256 with API_KEY
+ * over `${timestamp}.${body}`. The timestamp is inside the signature so a
+ * captured callback cannot be replayed later with a fresh one; a receiver
+ * should reject a timestamp more than a few minutes old.
+ */
+export async function callbackSignature(env: Env, body: string): Promise<Record<string, string>> {
+  if (!env.API_KEY) return {};
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const sig = toHex(await hmac(env.API_KEY, `${timestamp}.${body}`));
+  return { 'x-signature-timestamp': timestamp, 'x-signature': `sha256=${sig}` };
+}
 
 /**
  * `outputUrl` with an expiring HMAC instead of a credential, for a link shown to
@@ -59,5 +74,6 @@ export async function hasValidSignature(env: Env, jobId: string, url: URL): Prom
  * /api/jobs/{id}/output` can ever serve.
  */
 export async function getOutput(env: Env, jobId: string): Promise<R2ObjectBody | null> {
-  return env.MEDIA.get(assetKeys(jobId).output);
+  // A re-run's id reads the video it re-burned, which lives under the original's prefix.
+  return env.MEDIA.get(assetKeys(assetJobIdOf(jobId)).output);
 }

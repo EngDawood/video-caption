@@ -1,5 +1,5 @@
 import { sanitize } from '../../captions/text';
-import type { Segment } from '../../types';
+import type { Segment, StoredCues } from '../../types';
 
 /**
  * Reading pasted-back corrections, and matching them to the stored cues.
@@ -25,7 +25,7 @@ export function clock(seconds: number): string {
 }
 
 /** Read `00:01:02,400`, `1:02.4` or a bare `62.4` back into seconds. */
-function parseClock(text: string): number | null {
+export function parseClock(text: string): number | null {
   const parts = text.trim().split(':');
   if (parts.length > 3) return null;
 
@@ -62,7 +62,7 @@ const unmark = (line: string) => line.replace(/^(?:🗣|💬)️?\s*/u, '').trim
  * Pasted text arrives with whatever spacing the copy picked up, and doubled
  * spaces in a cue short enough to skip `resegment` are burned in as they are.
  */
-const tidy = (text: string) => sanitize(text).replace(/\s+/g, ' ').trim();
+export const tidy = (text: string) => sanitize(text).replace(/\s+/g, ' ').trim();
 
 /**
  * What a block's text is replaced with to drop the line entirely.
@@ -210,4 +210,83 @@ export function nearestCue(cues: Segment[], start: number): number {
   });
 
   return best;
+}
+
+export interface AppliedCorrections {
+  /** Every cue a correction landed on, in the order the corrections came. */
+  patched: Segment[];
+  /** The cues removed — already filtered out of `stored.segments`. */
+  doomed: Set<Segment>;
+  /** Start times that matched no cue, as `clock` shows them. */
+  missed: string[];
+  /** A 🗣 line changed, which only a re-translate can carry into the video. */
+  transcriptChanged: boolean;
+}
+
+/**
+ * Apply corrections to `stored` in place — the ✍️ Fix text flow, shared by the
+ * Telegram paste-back and the MCP `fix_script` tool. Nothing is saved here.
+ *
+ * Returns an error string instead when nothing matched or every line would be
+ * deleted; `stored` must then be discarded rather than saved, since the
+ * corrections before the check were already applied to it.
+ */
+export function applyCorrections(stored: StoredCues, corrections: Correction[]): AppliedCorrections | { error: string } {
+  const source = stored.source ?? [];
+  const patched: Segment[] = [];
+  // Held as cue objects, not indices: every removal shifts the ones after it,
+  // and the corrections in one message are all addressed against the list as
+  // the user was shown it.
+  const doomed = new Set<Segment>();
+  const missed: string[] = [];
+  let transcriptChanged = false;
+
+  for (const correction of corrections) {
+    const index = nearestCue(stored.segments, correction.start);
+    if (index < 0) {
+      missed.push(clock(correction.start));
+      continue;
+    }
+
+    const cue = stored.segments[index];
+
+    if (correction.remove) {
+      doomed.add(cue);
+      patched.push(cue);
+      continue;
+    }
+
+    if (correction.target) cue.text = correction.target;
+    // Only ever amend a transcript that exists. Seeding one from a single
+    // hand-typed line would leave a re-translate with one line to work from,
+    // and it would replace every caption in the video with that line.
+    if (correction.source && source.length > 0) {
+      replaceSourceRun(source, cue, correction.source);
+      transcriptChanged = true;
+    }
+    patched.push(cue);
+  }
+
+  if (patched.length === 0) {
+    return { error: `Nothing starts at ${missed.join(', ')}. Copy a block from the list and keep its timestamps.` };
+  }
+
+  // A video with no cues at all is not a correction anyone means to make, and
+  // it is the one shape of this that the burn has never been run against.
+  if (doomed.size > 0 && doomed.size >= stored.segments.length) {
+    return { error: 'That would delete every line. Leave at least one, or close the card to drop the video.' };
+  }
+
+  if (doomed.size > 0) {
+    // The transcript goes with it, so that a later re-translate cannot bring a
+    // deleted line back.
+    for (const cue of doomed) {
+      const run = sourceRun(source, cue);
+      if (run.length > 0) source.splice(source.indexOf(run[0]), run.length);
+    }
+    stored.segments = stored.segments.filter((cue) => !doomed.has(cue));
+  }
+
+  if (source.length > 0) stored.source = source;
+  return { patched, doomed, missed, transcriptChanged };
 }

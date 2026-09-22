@@ -3,7 +3,7 @@ import { cancelKeyboard } from '../bot/jobs';
 import { telegram } from '../bot/telegram';
 import { releaseSlot } from '../api/concurrency';
 import { recordProgress } from '../api/progress';
-import { outputUrl } from '../api/output';
+import { callbackSignature, outputUrl } from '../api/output';
 import type { CaptionSettings } from '../captions/settings';
 import type { CaptionJob, Env } from '../types';
 
@@ -22,8 +22,11 @@ export interface Channel {
   settle(text: string): Promise<void>;
   /** The run threw. Distinct from `settle` so a structured channel can report it as an error, not just a status line. */
   fail(reason: string): Promise<void>;
-  /** The finished video, once `burn-subtitles` has written it to `keys.output`. */
-  deliver(video: ArrayBuffer): Promise<void>;
+  /**
+   * The finished video, once `burn-subtitles` has written it to `keys.output`.
+   * `load` reads it from R2 — called only by a channel that sends the bytes.
+   */
+  deliver(load: () => Promise<ArrayBuffer>): Promise<void>;
   /** Offer to check the script before burning. False if it could not be posted. */
   offerReview(assetJobId: string, settings: CaptionSettings): Promise<ReviewCard | false>;
   /** Offer to restyle the delivered video. A no-op where there is no such follow-up. */
@@ -65,8 +68,8 @@ function telegramChannel(env: Env, job: CaptionJob): Channel {
       return this.settle(`❌ Failed: ${reason}`);
     },
 
-    async deliver(video) {
-      await tg.sendVideo(chatId, video, { replyTo: messageId });
+    async deliver(load) {
+      await tg.sendVideo(chatId, await load(), { replyTo: messageId });
     },
 
     async offerReview(assetJobId, settings) {
@@ -101,10 +104,11 @@ function webhookChannel(env: Env, job: CaptionJob, callbackUrl: string | undefin
     if (line) await recordProgress(env, job.jobId, line);
     if (!callbackUrl) return;
     try {
+      const payload = JSON.stringify({ jobId: job.jobId, ...body });
       const res = await fetch(callbackUrl, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ jobId: job.jobId, ...body }),
+        headers: { 'content-type': 'application/json', ...(await callbackSignature(env, payload)) },
+        body: payload,
       });
       if (!res.ok) console.error(`[channel] callback for ${job.jobId} rejected: HTTP ${res.status}`);
     } catch (err) {

@@ -22,7 +22,12 @@
 	],
 	"workers_dev": true,
 	"observability": {
-		"enabled": true
+		"enabled": true,
+		// Traces are separate from logs and off unless named — they are what shows
+		// which step of a request actually stalled.
+		"traces": {
+			"enabled": true
+		}
 	},
 	"ai": {
 		"binding": "AI"
@@ -62,6 +67,11 @@
 			{
 				"name": "FFMPEG",
 				"class_name": "FfmpegContainer"
+			},
+			// The API's concurrent-job cap: one instance, exact where a KV count was not.
+			{
+				"name": "API_SLOTS",
+				"class_name": "ApiSlots"
 			}
 		]
 	},
@@ -70,6 +80,12 @@
 			"tag": "v1",
 			"new_sqlite_classes": [
 				"FfmpegContainer"
+			]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": [
+				"ApiSlots"
 			]
 		}
 	],

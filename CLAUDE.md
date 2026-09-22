@@ -191,6 +191,15 @@ the change, so a font change costs one encode and a translator change costs no t
 - **Adding a settings field surfaces it in both menus** — `/settings` and the per-video edit card
   share `MENUS`. If a new field cannot actually change a delivered video, `pickMode` must know
   which re-run depth it needs.
+- **Never wrap the container's start in `blockConcurrencyWhile`.** The runtime cancels a gate held
+  past ~30 s and resets the Durable Object, and a cold boot can take that long — every job failed
+  with "blockConcurrencyWhile() … waited for too long" until `FfmpegContainer` stopped overriding
+  `fetch`. The base class's `containerFetch` already starts the container on demand.
+- **An API re-run's id is `<assetJobId>__<tag>`.** `restyle_job`/`fix_script` create their own
+  Workflow instance (so `job_status` tracks them) but work under the original job's R2 prefix;
+  `assetJobIdOf` recovers it, and `get_output` and `GET /api/jobs/{id}/output` both go through it.
+  The re-run overwrites `output.mp4` in place, which is why `get_output`'s `ready` also checks the
+  instance's own status. `settings.json` is written on delivery and is the `pickMode` baseline.
 - **`abandon(..., purge)` must be false for re-runs.** Purging on a failed re-transcribe would
   delete the assets behind a video the user already has.
 - **Hand-corrected text lives in `segments.json`, so a re-translate discards it.** ✍️ Fix text
