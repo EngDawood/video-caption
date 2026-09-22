@@ -128,6 +128,11 @@ export interface CaptionJob {
   fileId?: string;
   /** Social post URL, when the user sent a link instead — or what an API job was submitted with. */
   sourceUrl?: string;
+  /**
+   * The caption typed or forwarded with an uploaded video. A link's caption is
+   * not carried here: the workflow reads it from the post when it resolves it.
+   */
+  postCaption?: string;
   statusMessageId?: number;
   /**
    * Keeps the ✖️ Stop button on the status line: every progress edit has to

@@ -1,6 +1,6 @@
 import { loadSettings } from '../../captions/settings';
-import { loadCues } from '../../media/assets';
-import { postTextLanguages, transcriptOf, writePostText } from '../../pipeline/describe';
+import { loadCues, loadPostCaption } from '../../media/assets';
+import { postSourceOf, postTextLanguages, writePostText } from '../../pipeline/describe';
 import { escapeHtml, telegram } from '../telegram';
 import type { Env } from '../../types';
 import type { EditSession } from './session';
@@ -27,17 +27,21 @@ export async function sendPostText(
   session: EditSession,
 ): Promise<void> {
   const tg = telegram(env.TELEGRAM_BOT_TOKEN);
-  const stored = await loadCues(env, session.assetJobId);
+  const [stored, caption] = await Promise.all([
+    loadCues(env, session.assetJobId),
+    loadPostCaption(env, session.assetJobId),
+  ]);
   if (!stored) {
     await tg.answerCallbackQuery(callbackId, 'That video is no longer stored.');
     return;
   }
 
-  // What was said, in the language it was said in; the translation only
-  // stands in for a video stored before transcripts were kept.
-  const transcript = transcriptOf(stored.source?.length ? stored.source : stored.segments);
-  if (!transcript) {
-    await tg.answerCallbackQuery(callbackId, 'There is no speech in this video to describe.');
+  // What was said, in the language it was said in, and what the video was
+  // posted with; the translation only stands in for a video stored before
+  // transcripts were kept.
+  const source = postSourceOf(stored.source?.length ? stored.source : stored.segments, caption);
+  if (!source) {
+    await tg.answerCallbackQuery(callbackId, 'There is too little speech or text in this video to describe.');
     return;
   }
 
@@ -50,7 +54,7 @@ export async function sendPostText(
   // /settings should apply to the next tap on any card still open.
   const { writer } = await loadSettings(env, chatId);
   const languages = postTextLanguages(env);
-  const texts = await Promise.all(languages.map((lang) => writePostText(env, writer, transcript, lang)));
+  const texts = await Promise.all(languages.map((lang) => writePostText(env, writer, source, lang)));
 
   const blocks = languages.flatMap((lang, i) => {
     const text = texts[i];
