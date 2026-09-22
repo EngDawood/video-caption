@@ -346,8 +346,9 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
 
         await settle('✅ Done.');
         // The input and the cues stay: they are what makes the ✏️ Edit card
-        // below cheap. Closing that card drops them.
-        await env.MEDIA.delete(keys.output);
+        // below cheap. So does the burned video, because 📤 Share hands the
+        // platforms a link to it rather than the bytes. Closing that card
+        // drops all three; the r2-lifecycle rule is the backstop.
       });
 
       // 8. Offer to change how it looks, for this video only.

@@ -14,11 +14,13 @@ import { sendPostText } from './edit/post';
 import { sendPreview } from './edit/preview';
 import { revisionOf, startRestyle } from './edit/rerun';
 import { sendScript, startFix } from './edit/script';
+import { offerShare, startShare } from './edit/share';
 import { editKey, fixKey, type EditSession, type FixSession } from './edit/session';
 
 export { sendEditCard, sendReviewCard, type ReviewCard } from './edit/cards';
 export { queueRestyle } from './edit/rerun';
 export { handleTextCorrection } from './edit/script';
+export { handleShareReply } from './edit/share';
 
 /**
  * Re-running one delivered video.
@@ -53,6 +55,8 @@ export { handleTextCorrection } from './edit/script';
  *   ed:<token>:<code>             send the whole script as an .srt file
  *   ep:<token>:<code>             send one burned frame near the first caption
  *   eo:<token>:<code>             write the 📣 post text for publishing it
+ *   ei:<token>                    📤 write a caption and list where it can be posted
+ *   eu:<token>:<draft>:<n|x>      post to the n-th account on that list, or close it
  *   et:<token>:<code>             list the cues and start taking corrections
  *   ef:<token>:<code>             burn the corrections
  *   er:<token>:<code>             translate a corrected transcript, then burn
@@ -60,7 +64,7 @@ export { handleTextCorrection } from './edit/script';
  */
 
 export function isEditCallback(data: string): boolean {
-  return /^e[msgxtfrdpo]?:/.test(data);
+  return /^e[msgxtfrdpoiu]?:/.test(data);
 }
 
 /** Handle a tap anywhere in the per-video edit flow. */
@@ -98,6 +102,10 @@ export async function handleEditCallback(
     await tg.editMessageText(chatId, messageId, '✅ Closed. That video is no longer stored.');
     return;
   }
+
+  // Sharing posts the video as it was burned; neither button carries a draft.
+  if (verb === 'ei') return offerShare(env, chatId, callbackId, token, session);
+  if (verb === 'eu') return startShare(env, chatId, messageId, callbackId, code ?? '', rawField ?? '', session);
 
   // The code carries all seven fields, so the deployed defaults are only a
   // structural floor for a truncated or corrupted one — no KV read per tap.

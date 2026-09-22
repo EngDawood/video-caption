@@ -62,8 +62,8 @@ the loser is a silent no-op rather than a second burn. 📝 **Check script** doe
 timer — reading a script and pasting back a correction takes real time, so that path still waits
 for the tap with no timeout. Turning both on together also skips the timer, for the same reason.
 
-A finished run leaves the input video and `segments.json` (transcript **and** translation) in R2
-for 24h, which is what lets the ✏️ Edit card re-run at four depths — `full`, `retranscribe`,
+A finished run leaves the input video, the burned `output.mp4` (for 📤 Share) and `segments.json`
+(transcript **and** translation) in R2 for 24h, which is what lets the ✏️ Edit card re-run at four depths — `full`, `retranscribe`,
 `retranslate`, `restyle`. `pickMode` in `src/bot/edit/rerun.ts` picks the shallowest one that can serve
 the change, so a font change costs one encode and a translator change costs no transcription.
 
@@ -82,6 +82,9 @@ the change, so a font change costs one encode and a translator change costs no t
 | `src/bot/edit.ts` | Per-video card callback router; the pieces live in `src/bot/edit/` |
 | `src/bot/menu.ts` | `/settings` keyboards, shared with the edit card via `MenuScope` |
 | `src/captions/text.ts` | Strips what no caption font can draw — see the tofu gotcha below |
+| `src/social/composio.ts` | Composio REST: which accounts are connected, running a tool as one |
+| `src/social/publish.ts` | `PublishWorkflow` — posting one video to one Instagram / Facebook Page / LinkedIn target |
+| `src/bot/edit/share.ts` | 📤 Share card: write the post text, reply-to-edit it, one button per target |
 
 ## Gotchas
 
@@ -223,6 +226,21 @@ the change, so a font change costs one encode and a translator change costs no t
   blocks so Telegram gives each one a copy button, and a pasted-back block is matched on start
   time within 0.6 s. `BLOCK` in `bot/edit/corrections.ts` is also the predicate deciding whether a plain message
   is a correction at all, so loosening it makes ordinary chat start hitting KV.
+
+- **📤 Share posts to whatever is connected in Composio, and nothing is configured here.**
+  `publishTargets` lists the project's active Instagram, Facebook and LinkedIn connections on
+  each tap (a Facebook login expands to one target per Page it can post on — the API cannot
+  post to a personal profile) and caches each login's targets in KV for a day. Every platform
+  *downloads* the video, so it gets a `signedOutputUrl` link — which is why a Telegram job's
+  `output.mp4` is no longer deleted on delivery, and why sharing needs `API_KEY` as well as
+  `COMPOSIO_API_KEY`. `canShare` fails **closed** on `ADMIN_CHAT_ID`, unlike the bot itself.
+  The post runs in its own Workflow because Instagram processes a Reel for a minute or two.
+  Publishing steps are never retried where a repeat could double-post (Facebook's single call,
+  LinkedIn's post); preparing steps (IG container, LinkedIn upload) are. A reply to the card
+  replaces the text by posting a new card and stripping the old one's buttons — drafts are
+  written once, like the edit session. Share posts the *latest* burn of that video, so a
+  restyle after the card was posted changes what goes out. Unverified against the live
+  Composio API from this machine: the REST calls follow the v3.1 docs, not a real run.
 
 ## Environment
 

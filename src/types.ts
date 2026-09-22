@@ -2,6 +2,7 @@ import type { ApiSlots } from './api/concurrency';
 import type { FfmpegContainer } from './media/container';
 import type { CaptionSettings } from './captions/settings';
 import type { CaptionPosition, CaptionPreset, CaptionSize } from './captions/options';
+import type { PublishJob } from './social/publish';
 
 export interface Env {
   AI: Ai;
@@ -12,6 +13,8 @@ export interface Env {
   /** The API's concurrent-job cap — see `ApiSlots`. */
   API_SLOTS: DurableObjectNamespace<ApiSlots>;
   CAPTION_WORKFLOW: Workflow<CaptionJob>;
+  /** 📤 Share: one instance per post, see `social/publish.ts`. */
+  PUBLISH_WORKFLOW: Workflow<PublishJob>;
 
   // vars (wrangler.jsonc)
   /** Must be the font's internal family name, not its filename. */
@@ -86,6 +89,11 @@ export interface Env {
    * a var cannot be forgotten by a deploy the way a secret can.
    */
   ADMIN_CHAT_ID?: string;
+  /**
+   * Composio project API key for 📤 Share. Unset hides the button: the accounts
+   * it posts to are whatever is connected in that Composio project.
+   */
+  COMPOSIO_API_KEY?: string;
   /** For /usage. Needs Account Analytics: Read — nothing more. */
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;

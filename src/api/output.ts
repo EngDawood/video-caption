@@ -69,9 +69,8 @@ export async function hasValidSignature(env: Env, jobId: string, url: URL): Prom
  * The burned video for a finished API job, or null if it was never produced,
  * already fetched, or has aged out of the `r2-lifecycle` rule.
  *
- * Only a webhook-channel job's output survives past delivery — see the
- * `cleanup` step in `workflow.ts` — so this is the only kind `GET
- * /api/jobs/{id}/output` can ever serve.
+ * A Telegram job's output is kept too, for 📤 Share to hand the platforms a
+ * signed link to it, and goes when its ✏️ card is closed.
  */
 export async function getOutput(env: Env, jobId: string): Promise<R2ObjectBody | null> {
   // A re-run's id reads the video it re-burned, which lives under the original's prefix.

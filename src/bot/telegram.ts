@@ -28,6 +28,8 @@ export interface TgMessage {
   caption?: string;
   /** Present on a photo message: how a confirm card is told apart from a text one. */
   photo?: Array<{ file_id: string }>;
+  /** The message this one answers — how a reply to a 📤 card is recognised. */
+  reply_to_message?: { message_id: number };
 }
 
 export interface TgCallbackQuery {

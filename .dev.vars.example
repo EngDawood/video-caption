@@ -33,3 +33,11 @@ DOWNLOAD_API_KEY=
 # the whole /api/jobs surface returns 403.
 # In production: npx wrangler secret put API_KEY
 API_KEY=change-me
+
+# 📤 Share on the card under a delivered video: posts it to the Instagram,
+# Facebook Page and LinkedIn accounts connected in Composio. Project API key
+# from https://dashboard.composio.dev — unset hides the button. Only chats in
+# ADMIN_CHAT_ID ever see it, and it also needs API_KEY above (it signs the link
+# the platforms download the video from).
+# In production: npx wrangler secret put COMPOSIO_API_KEY
+# COMPOSIO_API_KEY=
