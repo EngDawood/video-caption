@@ -2,15 +2,7 @@ import { sanitize } from '../../captions/text';
 import { loadCues, saveCues } from '../../media/assets';
 import { escapeHtml, telegram, type InlineKeyboard } from '../telegram';
 import type { Env, Segment, StoredCues } from '../../types';
-import {
-  SOURCE_MARK,
-  TARGET_MARK,
-  clock,
-  nearestCue,
-  parseCorrections,
-  replaceSourceRun,
-  sourceRun,
-} from './corrections';
+import { SOURCE_MARK, TARGET_MARK, applyCorrections, clock, parseCorrections, sourceRun } from './corrections';
 import { EDIT_TTL_SECONDS, editKey, fixKey, type EditSession, type FixSession } from './session';
 
 /** The script as text: the .srt, the ✍️ copyable list, and applying what comes back. */
@@ -195,64 +187,14 @@ export async function handleTextCorrection(
     return true;
   }
 
+  const applied = applyCorrections(stored, corrections);
+  if ('error' in applied) {
+    await say(`⚠️ ${applied.error}`);
+    return true;
+  }
+
+  const { patched, doomed, missed, transcriptChanged } = applied;
   const source = stored.source ?? [];
-  const patched: Segment[] = [];
-  // Held as cue objects, not indices: every removal shifts the ones after it,
-  // and the corrections in one message are all addressed against the list as
-  // the user was shown it.
-  const doomed = new Set<Segment>();
-  const missed: string[] = [];
-  let transcriptChanged = false;
-
-  for (const correction of corrections) {
-    const index = nearestCue(stored.segments, correction.start);
-    if (index < 0) {
-      missed.push(clock(correction.start));
-      continue;
-    }
-
-    const cue = stored.segments[index];
-
-    if (correction.remove) {
-      doomed.add(cue);
-      patched.push(cue);
-      continue;
-    }
-
-    if (correction.target) cue.text = correction.target;
-    // Only ever amend a transcript that exists. Seeding one from a single
-    // hand-typed line would leave a re-translate with one line to work from,
-    // and it would replace every caption in the video with that line.
-    if (correction.source && source.length > 0) {
-      replaceSourceRun(source, cue, correction.source);
-      transcriptChanged = true;
-    }
-    patched.push(cue);
-  }
-
-  if (patched.length === 0) {
-    await say(`⚠️ Nothing starts at ${missed.join(', ')}. Copy a block from the list and keep its timestamps.`);
-    return true;
-  }
-
-  // A video with no cues at all is not a correction anyone means to make, and
-  // it is the one shape of this that the burn has never been run against.
-  if (doomed.size > 0 && doomed.size >= stored.segments.length) {
-    await say('⚠️ That would delete every line. Leave at least one, or close the card to drop the video.');
-    return true;
-  }
-
-  if (doomed.size > 0) {
-    // The transcript goes with it, so that a later re-translate cannot bring a
-    // deleted line back.
-    for (const cue of doomed) {
-      const run = sourceRun(source, cue);
-      if (run.length > 0) source.splice(source.indexOf(run[0]), run.length);
-    }
-    stored.segments = stored.segments.filter((cue) => !doomed.has(cue));
-  }
-
-  if (source.length > 0) stored.source = source;
   await saveCues(env, session.assetJobId, stored);
 
   // Correcting what was *said* only reaches the video through the translator,

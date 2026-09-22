@@ -9,6 +9,7 @@ import {
 import { fitSegments } from './fit';
 import { TRANSCRIBE_LEAD_SECONDS, transcribeChunk } from './stt';
 import { asSpoken, translateSegments } from './translate';
+import { postTextLanguages, transcriptOf, writePostText } from './describe';
 import { channelFor } from './channel';
 import { fetchMedia, maxSourceBytes, resolveVideo } from '../media/download';
 import { assetKeys } from '../media/assets';
@@ -98,7 +99,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
           await say('⏳ Extracting audio…');
           const object = await env.MEDIA.get(keys.input);
           if (!object) throw new NonRetryableError(EXPIRED);
-          return ffmpeg.uploadVideo(await object.arrayBuffer());
+          return ffmpeg.uploadVideo(object);
         })) as VideoMeta;
 
         const maxSeconds = Number(env.MAX_VIDEO_SECONDS || 900);
@@ -262,6 +263,29 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
         }
       }
 
+      // 4c. An API job has no 📣 button to tap, so it gets its post text now,
+      //     once, stored for get_output to hand back unchanged on every call.
+      //     Here rather than after the burn because the container is stopped
+      //     between translate and load-video — writing costs no awake time.
+      //     Best-effort: a failure leaves postText absent, never fails the job.
+      if (event.payload.channel?.type === 'webhook' && mode === 'full') {
+        await step
+          .do('write-post-text', RETRY, async () => {
+            const text = transcriptOf(transcript.length > 0 ? transcript : cues);
+            if (!text) return { languages: 0 };
+
+            await say('⏳ Writing the post text…');
+            const languages = postTextLanguages(env);
+            const written = await Promise.all(languages.map((lang) => writePostText(env, settings.writer, text, lang)));
+            const post = Object.fromEntries(
+              languages.flatMap((lang, i) => (written[i] ? [[lang, written[i]] as const] : [])),
+            );
+            if (Object.keys(post).length > 0) await env.MEDIA.put(keys.post, JSON.stringify(post));
+            return { languages: Object.keys(post).length };
+          })
+          .catch((err) => console.error(`[workflow] post text for ${jobId} failed:`, err));
+      }
+
       // 5. Put the video back in front of ffmpeg. Both paths arrive here with
       //    no container: a first run stopped it before translating, and a
       //    re-burn never had one. Audio is skipped — the burn re-encodes the
@@ -270,7 +294,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
         await say('⏳ Preparing to burn…');
         const object = await env.MEDIA.get(keys.input);
         if (!object) throw new NonRetryableError(EXPIRED);
-        await ffmpeg.uploadVideo(await object.arrayBuffer(), { skipAudio: true });
+        await ffmpeg.uploadVideo(object, { skipAudio: true });
       });
 
       // 6. Burn the Arabic in.
@@ -282,9 +306,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
         // container's work directory, taking the subtitle file with it.
         const burn = async () => {
           await ffmpeg.putSubtitles(ass);
-          const burned = await ffmpeg.burn();
-          await env.MEDIA.put(keys.output, burned);
-          return burned;
+          await ffmpeg.burnTo(env.MEDIA, keys.output);
         };
 
         await this.withVideoLoaded(jobId, keys.input, burn, true);
@@ -293,9 +315,13 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
 
       // 7. Send it back.
       await step.do('deliver', RETRY, async () => {
-        const object = await env.MEDIA.get(keys.output);
-        if (!object) throw new Error('burned video missing from R2');
-        await channel.deliver(await object.arrayBuffer());
+        // A loader, not the bytes: only Telegram needs the MP4 in hand — an API
+        // job is delivered as a link, and reading it here would be pure waste.
+        await channel.deliver(async () => {
+          const object = await env.MEDIA.get(keys.output);
+          if (!object) throw new Error('burned video missing from R2');
+          return object.arrayBuffer();
+        });
       });
 
       await step.do('cleanup', async () => {
@@ -307,6 +333,9 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
           // with the download link; a generic settle here would just be a
           // second, confusingly-ordered callback. The video itself stays in
           // R2 for the client to fetch — the r2-lifecycle rule is its backstop.
+          // What it was burned with is kept beside it: an API re-run
+          // (restyle_job, fix_script) starts from exactly these settings.
+          await env.MEDIA.put(keys.settings, JSON.stringify(settings));
           return;
         }
 
@@ -360,7 +389,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
     await ffmpeg.cleanup();
     if (!purge) return;
     const keys = assetKeys(assetJobId);
-    await this.env.MEDIA.delete([keys.input, keys.output, keys.segments]).catch(() => {});
+    await this.env.MEDIA.delete([keys.input, keys.output, keys.segments, keys.post, keys.settings]).catch(() => {});
   }
 
   /**
@@ -382,7 +411,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
 
       const object = await this.env.MEDIA.get(inputKey);
       if (!object) throw err;
-      await ffmpeg.uploadVideo(await object.arrayBuffer(), { skipAudio });
+      await ffmpeg.uploadVideo(object, { skipAudio });
       return fn();
     }
   }

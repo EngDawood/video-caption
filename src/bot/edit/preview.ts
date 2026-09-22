@@ -48,7 +48,7 @@ export async function renderPreview(
     const video = await env.MEDIA.get(assetKeys(assetJobId).input);
     if (!video) throw new Error('video no longer stored');
 
-    await ffmpeg.uploadVideo(await video.arrayBuffer(), { skipAudio: true });
+    await ffmpeg.uploadVideo(video, { skipAudio: true });
     await ffmpeg.putSubtitles(buildAssForSettings(cues, settings, stored.meta));
     return { frame: await ffmpeg.previewFrame(at), at };
   } catch (err) {

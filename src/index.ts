@@ -23,6 +23,7 @@ import type { Env } from './types';
 import { usageReport } from './bot/usage';
 
 export { FfmpegContainer } from './media/container';
+export { ApiSlots } from './api/concurrency';
 export { CaptionWorkflow } from './pipeline/workflow';
 
 // The Bot API refuses to hand a bot any file larger than this.

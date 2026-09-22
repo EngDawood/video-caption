@@ -1,7 +1,7 @@
-import { reserveSlot } from './concurrency';
+import { releaseSlot, reserveSlot } from './concurrency';
 import { readProgress } from './progress';
 import { ALL_FIELDS, defaults, isValid, loadSettings, type CaptionSettings } from '../captions/settings';
-import type { Env } from '../types';
+import type { CaptionJob, Env } from '../types';
 
 /** Thrown for anything wrong with the request itself — the caller turns this into the HTTP response. */
 export class ApiJobError extends Error {
@@ -39,9 +39,14 @@ async function baseSettings(env: Env): Promise<CaptionSettings> {
   return { ...(await loadSettings(env, chatId)), review: 'off', preview: 'off' };
 }
 
-async function parseSettings(env: Env, input: unknown): Promise<CaptionSettings> {
+/**
+ * A client's settings laid over `base` and validated. `base` is the deployed
+ * baseline for a new job, and the settings a delivered video was made with
+ * for a re-run of it.
+ */
+export async function parseSettings(env: Env, input: unknown, base?: CaptionSettings): Promise<CaptionSettings> {
   const settings = {
-    ...(await baseSettings(env)),
+    ...(base ?? (await baseSettings(env))),
     ...(input && typeof input === 'object' ? input : {}),
   } as CaptionSettings;
 
@@ -82,7 +87,58 @@ function parseCallbackUrl(input: unknown): string | undefined {
 }
 
 /**
+ * The job id an idempotency key maps to. Deterministic, so a retried
+ * submission lands on the Workflow instance the first one created — Workflows
+ * refuse a second instance with the same id. Hashed so a client's key never
+ * appears in a URL or an R2 path.
+ */
+async function idempotentJobId(key: unknown): Promise<string | undefined> {
+  if (key === undefined || key === null || key === '') return undefined;
+  if (typeof key !== 'string' || key.length > 200) {
+    throw new ApiJobError('idempotencyKey must be a string of at most 200 characters');
+  }
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`submit:${key}`));
+  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `api-${hex.slice(0, 32)}`;
+}
+
+const existingJob = (env: Env, jobId: string) => env.CAPTION_WORKFLOW.get(jobId).catch(() => null);
+
+/**
+ * Start an API run under `jobId`, or return the one already there.
+ *
+ * Every API run goes through here — a new job and each re-run of one — so each
+ * holds a concurrency slot and a repeated request with the same id is answered
+ * with the run it already started rather than a second paid one.
+ */
+export async function startApiRun(env: Env, jobId: string, params: Omit<CaptionJob, 'jobId'>): Promise<void> {
+  if (!env.CAPTION_WORKFLOW) throw new ApiJobError('the workflow binding is not configured', 500);
+  if (await existingJob(env, jobId)) return;
+
+  if (!(await reserveSlot(env, jobId))) {
+    throw new ApiJobError('the API is at capacity right now — try again shortly', 429);
+  }
+
+  try {
+    await env.CAPTION_WORKFLOW.create({ id: jobId, params: { jobId, ...params } });
+  } catch (err) {
+    // Lost a race to a retry with the same id: that retry's run is the
+    // answer. Its slot is keyed by the same jobId as this one, so releasing
+    // here would free the slot of the run that is actually going.
+    if (await existingJob(env, jobId)) return;
+    // Otherwise the slot was taken for a run that never started.
+    await releaseSlot(env, jobId);
+    throw err;
+  }
+}
+
+/**
  * Queue a job from an API request body.
+ *
+ * With an `idempotencyKey`, sending the same key again returns the job the
+ * first request started instead of starting — and paying for — a second one.
+ * That holds whatever the job's state, so retrying a *failed* job needs a new
+ * key.
  *
  * `sourceUrl` goes through the same `resolveVideo`/`fetchMedia` path a
  * Telegram link does, so it is a supported social post URL (TikTok,
@@ -100,21 +156,12 @@ export async function submitJob(env: Env, body: unknown): Promise<JobSubmission>
   const callbackUrl = parseCallbackUrl(req.callbackUrl);
   const settings = await parseSettings(env, req.settings);
 
-  const jobId = crypto.randomUUID();
-  if (!(await reserveSlot(env, jobId))) {
-    throw new ApiJobError('the API is at capacity right now — try again shortly', 429);
-  }
-
-  await env.CAPTION_WORKFLOW.create({
-    id: jobId,
-    params: {
-      jobId,
-      sourceUrl: req.sourceUrl,
-      settings,
-      channel: callbackUrl ? { type: 'webhook', callbackUrl } : { type: 'webhook' },
-    },
+  const jobId = (await idempotentJobId(req.idempotencyKey)) ?? crypto.randomUUID();
+  await startApiRun(env, jobId, {
+    sourceUrl: req.sourceUrl,
+    settings,
+    channel: callbackUrl ? { type: 'webhook', callbackUrl } : { type: 'webhook' },
   });
-
   return { jobId };
 }
 

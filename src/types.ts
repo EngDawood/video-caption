@@ -1,3 +1,4 @@
+import type { ApiSlots } from './api/concurrency';
 import type { FfmpegContainer } from './media/container';
 import type { CaptionSettings } from './captions/settings';
 import type { CaptionPosition, CaptionPreset, CaptionSize } from './captions/options';
@@ -8,6 +9,8 @@ export interface Env {
   /** Per-chat caption settings. Without it the deployed defaults are used. */
   CAPTION_SETTINGS: KVNamespace;
   FFMPEG: DurableObjectNamespace<FfmpegContainer>;
+  /** The API's concurrent-job cap — see `ApiSlots`. */
+  API_SLOTS: DurableObjectNamespace<ApiSlots>;
   CAPTION_WORKFLOW: Workflow<CaptionJob>;
 
   // vars (wrangler.jsonc)

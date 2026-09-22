@@ -22,11 +22,16 @@ export function ffmpegFor(env: Env, jobId: string) {
      * `skipAudio` is set, extracts the audio track. A re-burn passes
      * `skipAudio` — it already has the transcript, so the audio pass would be
      * work nothing reads.
+     *
+     * Streamed straight from R2 rather than read into memory first: a video
+     * near MAX_SOURCE_MB, buffered here and again on the way back from the
+     * burn, is most of a Worker's 128 MB. The container writes the request
+     * body to disk as it arrives.
      */
-    async uploadVideo(video: ArrayBuffer, opts: { skipAudio?: boolean } = {}): Promise<VideoMeta> {
+    async uploadVideo(video: R2ObjectBody, opts: { skipAudio?: boolean } = {}): Promise<VideoMeta> {
       const res = await stub.fetch(`${BASE}/job/video${opts.skipAudio ? '?audio=skip' : ''}`, {
         method: 'POST',
-        body: video,
+        body: video.body.pipeThrough(new FixedLengthStream(video.size)),
         headers: { 'content-type': 'application/octet-stream' },
       });
       if (res.status === 422) throw new Error('no_audio_track');
@@ -49,13 +54,21 @@ export function ffmpegFor(env: Env, jobId: string) {
       await unwrap(res, 'subtitle upload');
     },
 
-    /** Hardsub the stored ASS onto the stored video. */
-    async burn(opts: { crf?: number; preset?: string } = {}): Promise<ArrayBuffer> {
+    /**
+     * Hardsub the stored ASS onto the stored video and stream the result into
+     * `bucket` at `key`, never holding the MP4 in memory. The container sends
+     * a content-length, which R2 needs for a streamed put.
+     */
+    async burnTo(bucket: R2Bucket, key: string, opts: { crf?: number; preset?: string } = {}): Promise<void> {
       const params = new URLSearchParams();
       if (opts.crf) params.set('crf', String(opts.crf));
       if (opts.preset) params.set('preset', opts.preset);
-      const res = await stub.fetch(`${BASE}/job/burn?${params}`, { method: 'POST' });
-      return (await unwrap(res, 'burn')).arrayBuffer();
+      const res = await unwrap(await stub.fetch(`${BASE}/job/burn?${params}`, { method: 'POST' }), 'burn');
+      const size = Number(res.headers.get('content-length'));
+      if (!res.body || !Number.isSafeInteger(size) || size <= 0) throw new Error('ffmpeg burn returned no sized body');
+      await bucket.put(key, res.body.pipeThrough(new FixedLengthStream(size)), {
+        httpMetadata: { contentType: 'video/mp4' },
+      });
     },
 
     /** One jpeg frame near `at` seconds, with the stored subtitles burned in. */

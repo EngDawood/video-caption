@@ -14,7 +14,7 @@ import type { EditSession } from './session';
  * settings that actually change what the transcriber does. Everything else is
  * either a translation input or pure styling.
  */
-function pickMode(was: CaptionSettings | undefined, draft: CaptionSettings): CaptionJob['mode'] {
+export function pickMode(was: CaptionSettings | undefined, draft: CaptionSettings): CaptionJob['mode'] {
   // No record of the original settings (a card posted by an older deploy):
   // re-burn, which is what that card promised anyway.
   if (!was) return 'restyle';
