@@ -29,8 +29,12 @@ export interface Target {
 }
 
 const ICONS: Record<Platform, string> = { instagram: '📸', facebook: '📘', linkedin: '💼' };
+const PLATFORM_NAMES: Record<Platform, string> = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn' };
 
 export const targetLabel = (t: Target) => `${ICONS[t.platform]} ${t.name}`;
+
+/** A target as the /accounts report lists it — the platform named next to the account. */
+const describeTarget = (t: Target) => `${ICONS[t.platform]} ${t.name} — ${PLATFORM_NAMES[t.platform]}`;
 
 /**
  * What one login can post to is looked up once a day at most: it costs a
@@ -154,4 +158,13 @@ export async function publishTargets(env: Env): Promise<Target[]> {
     }),
   );
   return perPlatform.flat();
+}
+
+/** The /accounts command: every place 📤 Share can currently post to. */
+export async function accountsReport(env: Env): Promise<string> {
+  const targets = await publishTargets(env);
+  if (targets.length === 0) {
+    return '⚠️ No Instagram, Facebook or LinkedIn account is connected in Composio.';
+  }
+  return ['📤 Connected accounts', '', ...targets.map(describeTarget)].join('\n');
 }
