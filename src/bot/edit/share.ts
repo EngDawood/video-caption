@@ -83,8 +83,18 @@ async function sendShareCard(
   const draftId = crypto.randomUUID().slice(0, 8);
   await env.CAPTION_SETTINGS.put(draftKey(draftId), JSON.stringify(draft), { expirationTtl: EDIT_TTL_SECONDS });
 
+  // Facebook alone can hold an unpublished post, so it alone gets a draft
+  // button — Instagram's container just expires unposted, and LinkedIn's API
+  // has no draft state at all.
   const keyboard: InlineKeyboard = [
-    ...draft.targets.map((t, i) => [{ text: targetLabel(t), callback_data: `eu:${token}:${draftId}:${i}` }]),
+    ...draft.targets.flatMap((t, i) =>
+      t.platform === 'facebook'
+        ? [
+            [{ text: `${targetLabel(t)} · 🚀 Publish`, callback_data: `eu:${token}:${draftId}:${i}` }],
+            [{ text: `${targetLabel(t)} · 📝 Draft`, callback_data: `eu:${token}:${draftId}:${i}d` }],
+          ]
+        : [[{ text: targetLabel(t), callback_data: `eu:${token}:${draftId}:${i}` }]],
+    ),
     [{ text: '✖️ Close', callback_data: `eu:${token}:${draftId}:x` }],
   ];
   const text = [
@@ -172,7 +182,10 @@ export async function offerShare(
   }
 }
 
-/** `eu:<token>:<draftId>:<n|x>` — post to the n-th target, or cancel. */
+/**
+ * `eu:<token>:<draftId>:<n|x|nd>` — post to the n-th target, cancel, or (Facebook
+ * only, the trailing 'd') save it there as an unpublished draft instead.
+ */
 export async function startShare(
   env: Env,
   chatId: number,
@@ -191,8 +204,13 @@ export async function startShare(
     return;
   }
 
+  // A trailing 'd' on the index means the Facebook draft button — see
+  // sendShareCard, the only place that suffix is minted.
+  const asDraft = choice.endsWith('d');
+  const index = Number(asDraft ? choice.slice(0, -1) : choice);
+
   const draft = await env.CAPTION_SETTINGS.get<ShareDraft>(draftKey(draftId), 'json');
-  const target = draft?.targets[Number(choice)];
+  const target = draft?.targets[index];
   if (!draft || !target) {
     await tg.answerCallbackQuery(callbackId, 'That post has expired — tap 📤 again.');
     await tg.editMessageText(chatId, messageId, '⌛ Expired.');
@@ -201,10 +219,12 @@ export async function startShare(
 
   // The card stays up, so the same caption can go to one account after
   // another; each post reports on a status line of its own under it.
-  await tg.answerCallbackQuery(callbackId, 'Posting…');
+  await tg.answerCallbackQuery(callbackId, asDraft ? 'Saving…' : 'Posting…');
   const status = await tg.sendMessage(
     chatId,
-    `⏳ Posting to ${targetLabel(target)}… this can take a couple of minutes.`,
+    asDraft
+      ? `⏳ Saving a draft on ${targetLabel(target)}…`
+      : `⏳ Posting to ${targetLabel(target)}… this can take a couple of minutes.`,
     messageId,
   );
 
@@ -218,6 +238,9 @@ export async function startShare(
     caption: draft.caption,
     chatId,
     statusMessageId: status.message_id,
+    // Only Facebook's button carries the 'd' suffix, so this is always false
+    // for the other platforms regardless of what a hand-crafted callback claims.
+    draft: asDraft && target.platform === 'facebook',
   };
   try {
     await env.PUBLISH_WORKFLOW.create({ id, params });

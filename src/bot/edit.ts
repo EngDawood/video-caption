@@ -56,7 +56,7 @@ export { handleShareReply } from './edit/share';
  *   ep:<token>:<code>             send one burned frame near the first caption
  *   eo:<token>:<code>             write the 📣 post text for publishing it
  *   ei:<token>                    📤 write a caption and list where it can be posted
- *   eu:<token>:<draft>:<n|x>      post to the n-th account on that list, or close it
+ *   eu:<token>:<draft>:<n|x|nd>   post to the n-th account, close it, or (Facebook, 'nd') save as a draft
  *   et:<token>:<code>             list the cues and start taking corrections
  *   ef:<token>:<code>             burn the corrections
  *   er:<token>:<code>             translate a corrected transcript, then burn
