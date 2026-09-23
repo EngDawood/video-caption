@@ -28,8 +28,8 @@ export interface Target {
   name: string;
 }
 
-const ICONS: Record<Platform, string> = { instagram: '📸', facebook: '📘', linkedin: '💼' };
-const PLATFORM_NAMES: Record<Platform, string> = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn' };
+export const ICONS: Record<Platform, string> = { instagram: '📸', facebook: '📘', linkedin: '💼' };
+export const PLATFORM_NAMES: Record<Platform, string> = { instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn' };
 
 export const targetLabel = (t: Target) => `${ICONS[t.platform]} ${t.name}`;
 
@@ -167,4 +167,46 @@ export async function accountsReport(env: Env): Promise<string> {
     return '⚠️ No Instagram, Facebook or LinkedIn account is connected in Composio.';
   }
   return ['📤 Connected accounts', '', ...targets.map(describeTarget)].join('\n');
+}
+
+/** Every connection here runs under this one Composio user — the bot has no concept of several. */
+const CONNECT_USER_ID = 'video-caption-bot';
+
+function authConfigId(env: Env, platform: Platform): string | undefined {
+  switch (platform) {
+    case 'instagram':
+      return env.COMPOSIO_AUTH_CONFIG_INSTAGRAM;
+    case 'facebook':
+      return env.COMPOSIO_AUTH_CONFIG_FACEBOOK;
+    case 'linkedin':
+      return env.COMPOSIO_AUTH_CONFIG_LINKEDIN;
+  }
+}
+
+export interface ConnectLink {
+  redirectUrl: string;
+  expiresAt: string;
+}
+
+/**
+ * A one-time Composio sign-in link for /connect: hand the returned URL to the
+ * user, they log into the platform there, and the new connection shows up in
+ * publishTargets on its own — no deploy, no setting to change.
+ *
+ * Needs that platform's auth_config_id, which only exists once someone has
+ * set the platform up in Composio's dashboard (its OAuth app credentials);
+ * this call cannot create one, only use it.
+ */
+export async function createConnectLink(env: Env, platform: Platform): Promise<ConnectLink> {
+  const authConfig = authConfigId(env, platform);
+  if (!authConfig) {
+    throw new Error(
+      `${PLATFORM_NAMES[platform]} has no auth_config_id set — add one from Composio's dashboard first.`,
+    );
+  }
+  const res = await api<{ redirect_url: string; expires_at: string }>(env, '/connected_accounts/link', {
+    method: 'POST',
+    body: JSON.stringify({ auth_config_id: authConfig, user_id: CONNECT_USER_ID }),
+  });
+  return { redirectUrl: res.redirect_url, expiresAt: res.expires_at };
 }

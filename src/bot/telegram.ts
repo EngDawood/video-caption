@@ -50,8 +50,11 @@ export interface TgUpdate {
 export const escapeHtml = (text: string) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+/** One button: either a callback Claude answers, or a link Telegram opens directly. */
+export type InlineButton = { text: string } & ({ callback_data: string } | { url: string });
+
 /** One row of inline-keyboard buttons. */
-export type InlineKeyboard = Array<Array<{ text: string; callback_data: string }>>;
+export type InlineKeyboard = InlineButton[][];
 
 /** One entry in the ☰ command menu Telegram shows beside the input box. */
 export interface BotCommand {

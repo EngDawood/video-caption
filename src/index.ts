@@ -5,6 +5,7 @@ import { handleMcp } from './mcp/server';
 import { extractSourceUrl, maxSourceBytes } from './media/download';
 import { handleEditCallback, handleShareReply, handleTextCorrection, isEditCallback } from './bot/edit';
 import { canShare } from './bot/edit/share';
+import { handleConnectCallback, isConnectCallback, sendConnectMenu } from './bot/connect';
 import {
   handleCancelCallback,
   handleOfferCallback,
@@ -74,6 +75,7 @@ const ADMIN_COMMANDS: BotCommand[] = [
   ...COMMANDS,
   { command: 'usage', description: 'Container usage and projected cost this month' },
   { command: 'accounts', description: 'Instagram, Facebook and LinkedIn accounts connected for 📤 Share' },
+  { command: 'connect', description: 'Sign a new account into Composio' },
 ];
 
 /** What the bot is set up to do right now, as opposed to how to use it. */
@@ -258,6 +260,12 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
       return;
     }
 
+    // /connect: minting a Composio sign-in link for a platform.
+    if (isConnectCallback(query.data)) {
+      await handleConnectCallback(env, origin.chat.id, origin.message_id, query.id, query.data);
+      return;
+    }
+
     await handleMenuCallback(env, origin.chat.id, origin.message_id, query.id, query.data);
     return;
   }
@@ -294,6 +302,8 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
         } else {
           await tg.sendMessage(chatId, await accountsReport(env), message.message_id);
         }
+      } else if (command === '/connect') {
+        await sendConnectMenu(env, chatId, message.message_id);
       } else if (command === '/settings') {
         const settings = await loadSettings(env, chatId);
         await tg.sendMessage(chatId, MENU_TITLE, message.message_id, rootKeyboard(settings));

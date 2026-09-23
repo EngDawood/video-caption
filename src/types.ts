@@ -94,6 +94,14 @@ export interface Env {
    * it posts to are whatever is connected in that Composio project.
    */
   COMPOSIO_API_KEY?: string;
+  /**
+   * auth_config_id from Composio's dashboard, one per platform — set up there
+   * once (it holds the OAuth app credentials), never here. /connect needs it
+   * to mint a sign-in link; unset hides that platform's button on /connect.
+   */
+  COMPOSIO_AUTH_CONFIG_INSTAGRAM?: string;
+  COMPOSIO_AUTH_CONFIG_FACEBOOK?: string;
+  COMPOSIO_AUTH_CONFIG_LINKEDIN?: string;
   /** For /usage. Needs Account Analytics: Read — nothing more. */
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
