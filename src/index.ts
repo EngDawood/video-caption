@@ -4,6 +4,7 @@ import { getOutput, hasValidSignature } from './api/output';
 import { handleMcp } from './mcp/server';
 import { extractSourceUrl, maxSourceBytes } from './media/download';
 import { handleEditCallback, handleShareReply, handleTextCorrection, isEditCallback } from './bot/edit';
+import { canShare } from './bot/edit/share';
 import {
   handleCancelCallback,
   handleOfferCallback,
@@ -21,6 +22,7 @@ import { extractVideo, telegram, type BotCommand, type TgUpdate } from './bot/te
 import type { CaptionSettings } from './captions/settings';
 import type { Env } from './types';
 import { usageReport } from './bot/usage';
+import { accountsReport } from './social/composio';
 
 export { FfmpegContainer } from './media/container';
 export { ApiSlots } from './api/concurrency';
@@ -71,6 +73,7 @@ const COMMANDS: BotCommand[] = [
 const ADMIN_COMMANDS: BotCommand[] = [
   ...COMMANDS,
   { command: 'usage', description: 'Container usage and projected cost this month' },
+  { command: 'accounts', description: 'Instagram, Facebook and LinkedIn accounts connected for 📤 Share' },
 ];
 
 /** What the bot is set up to do right now, as opposed to how to use it. */
@@ -281,6 +284,16 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
 
       if (command === '/usage') {
         await tg.sendMessage(chatId, await usageReport(env), message.message_id);
+      } else if (command === '/accounts') {
+        if (!canShare(env, chatId)) {
+          await tg.sendMessage(
+            chatId,
+            '⚠️ Not set up for this chat — 📤 Share needs COMPOSIO_API_KEY and API_KEY, and this chat listed in ADMIN_CHAT_ID.',
+            message.message_id,
+          );
+        } else {
+          await tg.sendMessage(chatId, await accountsReport(env), message.message_id);
+        }
       } else if (command === '/settings') {
         const settings = await loadSettings(env, chatId);
         await tg.sendMessage(chatId, MENU_TITLE, message.message_id, rootKeyboard(settings));

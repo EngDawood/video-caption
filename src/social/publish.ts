@@ -31,6 +31,8 @@ export interface PublishJob {
   chatId: number;
   /** The confirmation card, which becomes the status line. */
   statusMessageId: number;
+  /** Facebook only — an unpublished post instead of a live one. Ignored elsewhere. */
+  draft?: boolean;
 }
 
 const PREPARE: WorkflowStepConfig = {
@@ -43,6 +45,8 @@ const ONCE: WorkflowStepConfig = { retries: { limit: 0, delay: '1 second' }, tim
 export class PublishWorkflow extends WorkflowEntrypoint<Env, PublishJob> {
   async run(event: WorkflowEvent<PublishJob>, step: WorkflowStep) {
     const { assetJobId, target, caption, chatId, statusMessageId } = event.payload;
+    // Only Facebook's post call can honour it; treated as false everywhere else.
+    const draft = Boolean(event.payload.draft) && target.platform === 'facebook';
     const env = this.env;
     const tg = telegram(env.TELEGRAM_BOT_TOKEN);
     const label = targetLabel(target);
@@ -57,10 +61,13 @@ export class PublishWorkflow extends WorkflowEntrypoint<Env, PublishJob> {
         return signedOutputUrl(env, assetJobId);
       });
 
-      const link = await this.post(step, target, videoUrl, caption);
+      const link = await this.post(step, target, videoUrl, caption, draft);
 
       await step.do('notify', async () => {
-        await tg.editMessageText(chatId, statusMessageId, `✅ Posted to ${label}${link ? `\n${link}` : ''}`);
+        const text = draft
+          ? `📝 Saved as a draft on ${label}. Publish it from the Page's Publishing Tools when you're ready.`
+          : `✅ Posted to ${label}${link ? `\n${link}` : ''}`;
+        await tg.editMessageText(chatId, statusMessageId, text);
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
@@ -71,8 +78,17 @@ export class PublishWorkflow extends WorkflowEntrypoint<Env, PublishJob> {
     }
   }
 
-  /** Post it, and return a link to the post when the platform gives one. */
-  private async post(step: WorkflowStep, target: Target, videoUrl: string, caption: string): Promise<string | null> {
+  /**
+   * Post it, and return a link to the post when the platform gives one and it
+   * is actually live — a draft has nothing to link to yet.
+   */
+  private async post(
+    step: WorkflowStep,
+    target: Target,
+    videoUrl: string,
+    caption: string,
+    draft: boolean,
+  ): Promise<string | null> {
     const env = this.env;
 
     switch (target.platform) {
@@ -116,17 +132,19 @@ export class PublishWorkflow extends WorkflowEntrypoint<Env, PublishJob> {
       }
 
       case 'facebook': {
-        // One call uploads and publishes, so it is never repeated.
+        // One call uploads and, unless this is a draft, publishes — so it is
+        // never repeated either way: a draft left as `published: false` is
+        // exactly as unrepeatable as a live post would be.
         const videoId = await step.do('post', ONCE, async () => {
           const video = await execute<{ id: string }>(env, target, 'FACEBOOK_CREATE_VIDEO_POST', {
             page_id: target.targetId,
             file_url: videoUrl,
             description: caption,
-            published: true,
+            published: !draft,
           });
           return video.id;
         });
-        return `https://www.facebook.com/watch/?v=${videoId}`;
+        return draft ? null : `https://www.facebook.com/watch/?v=${videoId}`;
       }
 
       case 'linkedin': {
