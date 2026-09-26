@@ -42,6 +42,15 @@ the platform/quality line above it rather than making the user confirm twice. Tu
 off restores the old behaviour: an upload starts on arrival, a link gets the plain ✅ Caption it
 offer.
 
+When the video has a thumbnail, the settings card is a **picture**: sample captions in the
+draft's settings drawn onto that thumbnail by `renderMockup` in `src/captions/mockup.ts`, in the
+Worker, with no container. Picking a setting in `MOCKUP_FIELDS` redraws it with
+`editMessageMedia`. It is a sketch, and the caption says so: sizes, colours, margins and the
+fitted line come from the same `resolveStyle` / `fitSegments` the burn uses, but the rasteriser
+is resvg (rustybuzz shaping, SVG strokes), not libass. A link's thumbnail goes out first as a
+plain photo so Telegram hands it back as a JPEG by file id (resvg-wasm cannot decode WebP), then
+the drawn one is swapped in. The picture's source lives under `startpic:<token>`, written once.
+
 With 📝 **Check script** on, the run *ends* after translate and posts the script as an `.srt` with
 a ✅ Burn it card. The burn is then the same `restyle` re-run the ♻️ Apply button has always
 queued, over the cues already in R2 — no Workflow instance is held open waiting for a tap, and
@@ -78,7 +87,8 @@ the change, so a font change costs one encode and a translator change costs no t
 | `src/pipeline/workflow.ts` | Stage orchestration and what gets stored in R2 |
 | `src/captions/settings.ts` | Every user-facing setting; menus and validation derive from `MENUS` |
 | `src/captions/options.ts` | Colour, background and position tables — a leaf `settings.ts` and `subtitles.ts` both import, so neither imports the other for them |
-| `src/captions/subtitles.ts` | ASS generation, presets, RTL shaping |
+| `src/captions/subtitles.ts` | ASS generation, presets, RTL shaping; `resolveStyle` is the numbers both it and the mockup draw from |
+| `src/captions/mockup.ts` | The 🧾 card's picture: sample captions on the thumbnail, rendered in the Worker with resvg-wasm |
 | `src/bot/edit.ts` | Per-video card callback router; the pieces live in `src/bot/edit/` |
 | `src/bot/menu.ts` | `/settings` keyboards, shared with the edit card via `MenuScope` |
 | `src/captions/text.ts` | Strips what no caption font can draw — see the tofu gotcha below |
@@ -178,6 +188,10 @@ the change, so a font change costs one encode and a translator change costs no t
   stripped, and `unexpectedCharacters` names what survived and is still not ordinary caption text
   — that second one is the half that matters, because a character nobody anticipated would
   otherwise leave the log empty and the video full of boxes.
+- **A new font goes in two places now.** The container reads `public/`; the 🧾 card's picture
+  imports its face in `FACES` in `mockup.ts`. A `.woff2` has to be decompressed into
+  `src/captions/fonts/` first (`fonttools ttLib.woff2 decompress`), because resvg reads sfnt only.
+  A font missing from `FACES` is a type error, not a silent fallback.
 - **Font coverage is a per-language decision, not a style one.** Al Jazeera and Thmanyah are
   Arabic-only: both miss ٹ ڈ ڑ ں ے, so Urdu breaks on either, and Thmanyah also misses گ ک ی ژ ہ
   and the Persian digits. Noto Naskh Arabic carries the whole Arabic block plus both supplements.
