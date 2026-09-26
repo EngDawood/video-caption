@@ -1,4 +1,5 @@
 import type { CaptionSettings } from '../captions/settings';
+import type { PostOrigin } from './download';
 import type { Env, StoredCues } from '../types';
 
 /**
@@ -19,6 +20,8 @@ export const assetKeys = (jobId: string) => ({
    * linked post's own caption — as it came. Only the 📣 Post text reads it.
    */
   caption: `jobs/${jobId}/caption.txt`,
+  /** Who a linked video was posted by — see `originOf`. Read by the 📣 Post text alone. */
+  origin: `jobs/${jobId}/origin.json`,
   /** An API job's post text, one entry per language — see `write-post-text` in workflow.ts. */
   post: `jobs/${jobId}/post.json`,
   /**
@@ -68,6 +71,12 @@ export async function loadPostCaption(env: Env, jobId: string): Promise<string |
   return object ? await object.text() : null;
 }
 
+/** Who posted a linked video, or null for an upload or once it expired. */
+export async function loadPostOrigin(env: Env, jobId: string): Promise<PostOrigin | null> {
+  const object = await env.MEDIA.get(assetKeys(jobId).origin);
+  return object ? await object.json<PostOrigin>().catch(() => null) : null;
+}
+
 /** The post text an API job wrote, by language code, or null if none was written or it expired. */
 export async function loadPostText(env: Env, jobId: string): Promise<Record<string, string> | null> {
   const object = await env.MEDIA.get(assetKeys(jobId).post);
@@ -77,7 +86,7 @@ export async function loadPostText(env: Env, jobId: string): Promise<Record<stri
 /** Drop everything a job stored. Safe to call twice. */
 export async function purgeAssets(env: Env, jobId: string): Promise<void> {
   const keys = assetKeys(jobId);
-  await env.MEDIA.delete([keys.input, keys.output, keys.segments, keys.caption, keys.post, keys.settings]).catch((err) => {
+  await env.MEDIA.delete([keys.input, keys.output, keys.segments, keys.caption, keys.origin, keys.post, keys.settings]).catch((err) => {
     console.error(`[assets] purge failed for ${jobId}:`, err);
   });
 }

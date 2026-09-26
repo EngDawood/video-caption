@@ -29,6 +29,15 @@ export interface ResolvedMedia {
   filesize?: number;
   /** The post's own text, as Telegram HTML. Untrusted: a stranger wrote it. */
   caption?: string;
+  /** Who posted it, when the API says. Untrusted, like the caption. */
+  author?: string;
+}
+
+/** Who a linked video came from, kept for the 📣 Post text. */
+export interface PostOrigin {
+  platform: string;
+  /** A display name or handle; absent when neither the API nor the link names one. */
+  author?: string;
 }
 
 interface ApiMedia {
@@ -44,6 +53,13 @@ interface ApiResponse {
   media?: ApiMedia[];
   thumbnail?: string;
   caption?: string;
+  /**
+   * Not in the documented contract; read if a backend sends one, since the
+   * link itself only names the poster on some platforms.
+   */
+  author?: string;
+  uploader?: string;
+  username?: string;
   error?: string;
   message?: string;
   retryable?: boolean;
@@ -126,7 +142,55 @@ export async function resolveVideo(env: Env, postUrl: string): Promise<ResolvedM
     // Carried for the 📣 Post text alone, which frames it as reference
     // material rather than instructions. Nothing else reads it.
     caption: data.caption || undefined,
+    author: [data.author, data.uploader, data.username].find((v) => typeof v === 'string' && v.trim())?.trim(),
   };
+}
+
+/** Path segments that are a page type, never an account name. */
+const NOT_A_HANDLE = new Set([
+  'reel', 'reels', 'p', 'tv', 'stories', 'watch', 'share', 'shorts', 'videos', 'video', 'groups',
+  'permalink.php', 'story.php', 'profile.php', 'i', 'status', 'embed', 'channel', 'user', 'c', 'hashtag',
+]);
+
+const HANDLE = /^@?([\p{L}\p{N}_.]{2,40})$/u;
+
+/**
+ * The account a post URL names, or undefined. TikTok, YouTube and Threads put
+ * it after an @; X, Instagram and Facebook as the first path segment, when
+ * the link was copied from the profile rather than the share sheet.
+ */
+export function authorFromUrl(url: string): string | undefined {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return undefined;
+  }
+  const segments = parsed.pathname.split('/').filter(Boolean).map((s) => decodeURIComponent(s));
+  const at = segments.find((s) => s.startsWith('@'));
+  const candidate = at ?? (/(^|\.)(x|twitter|instagram|facebook)\.com$/i.test(parsed.hostname) && segments.length > 1 ? segments[0] : undefined);
+  if (!candidate || NOT_A_HANDLE.has(candidate.toLowerCase())) return undefined;
+  const handle = HANDLE.exec(candidate)?.[1];
+  return handle ? `@${handle}` : undefined;
+}
+
+/**
+ * Who posted a linked video: the API's answer if it gave one, else the handle
+ * in the link. A share link (vm.tiktok.com, fb.watch) names nobody, so it is
+ * followed once to the URL it redirects to. Best-effort throughout.
+ */
+export async function originOf(postUrl: string, media: ResolvedMedia): Promise<PostOrigin> {
+  const platform = media.platform;
+  const given = media.author?.slice(0, 80);
+  if (given) return { platform, author: given };
+
+  const direct = authorFromUrl(postUrl);
+  if (direct) return { platform, author: direct };
+
+  const redirected = await fetch(postUrl, { method: 'HEAD', redirect: 'follow', signal: AbortSignal.timeout(5000) })
+    .then((res) => res.url)
+    .catch(() => null);
+  return { platform, author: redirected ? authorFromUrl(redirected) : undefined };
 }
 
 /** Pull the resolved link down, refusing anything over `maxBytes`. */
