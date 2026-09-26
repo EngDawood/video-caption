@@ -1,4 +1,4 @@
-import { loadCues, loadPostCaption } from '../../media/assets';
+import { loadCues, loadPostCaption, loadPostOrigin } from '../../media/assets';
 import { loadSettings } from '../../captions/settings';
 import { postSourceOf, postTextLanguages, writePostText } from '../../pipeline/describe';
 import { publishTargets, targetLabel, type Target } from '../../social/composio';
@@ -58,8 +58,12 @@ export function canShare(env: Env, chatId: number): boolean {
  * the video can still be posted, and the preview shows that it has none.
  */
 async function writeCaption(env: Env, chatId: number, assetJobId: string): Promise<string> {
-  const [stored, posted] = await Promise.all([loadCues(env, assetJobId), loadPostCaption(env, assetJobId)]);
-  const source = stored && postSourceOf(stored.source?.length ? stored.source : stored.segments, posted);
+  const [stored, posted, origin] = await Promise.all([
+    loadCues(env, assetJobId),
+    loadPostCaption(env, assetJobId),
+    loadPostOrigin(env, assetJobId),
+  ]);
+  const source = stored && postSourceOf(stored.source?.length ? stored.source : stored.segments, posted, origin);
   if (!source) return '';
 
   const { writer } = await loadSettings(env, chatId);

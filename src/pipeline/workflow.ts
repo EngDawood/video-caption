@@ -11,8 +11,8 @@ import { TRANSCRIBE_LEAD_SECONDS, transcribeChunk } from './stt';
 import { asSpoken, translateSegments } from './translate';
 import { postSourceOf, postTextLanguages, writePostText } from './describe';
 import { channelFor } from './channel';
-import { fetchMedia, maxSourceBytes, resolveVideo } from '../media/download';
-import { assetKeys, loadPostCaption } from '../media/assets';
+import { fetchMedia, maxSourceBytes, originOf, resolveVideo } from '../media/download';
+import { assetKeys, loadPostCaption, loadPostOrigin } from '../media/assets';
 import { ffmpegFor } from '../media/ffmpeg';
 import { encodeSettings, loadSettings, type CaptionSettings } from '../captions/settings';
 import { buildAssForSettings } from '../captions/subtitles';
@@ -85,6 +85,8 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
               const bytes = await fetchMedia(media, maxSourceBytes(env));
               await env.MEDIA.put(keys.input, bytes);
               if (media.caption) await env.MEDIA.put(keys.caption, media.caption);
+              const origin = await originOf(sourceUrl, media);
+              await env.MEDIA.put(keys.origin, JSON.stringify(origin));
               return { bytes: bytes.byteLength, platform: media.platform };
             }
 
@@ -273,8 +275,11 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
       if (event.payload.channel?.type === 'webhook' && mode === 'full') {
         await step
           .do('write-post-text', RETRY, async () => {
-            const caption = await loadPostCaption(env, assetJobId);
-            const source = postSourceOf(transcript.length > 0 ? transcript : cues, caption);
+            const [caption, origin] = await Promise.all([
+              loadPostCaption(env, assetJobId),
+              loadPostOrigin(env, assetJobId),
+            ]);
+            const source = postSourceOf(transcript.length > 0 ? transcript : cues, caption, origin);
             if (!source) return { languages: 0 };
 
             await say('⏳ Writing the post text…');
@@ -395,7 +400,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
     await ffmpeg.cleanup();
     if (!purge) return;
     const keys = assetKeys(assetJobId);
-    await this.env.MEDIA.delete([keys.input, keys.output, keys.segments, keys.caption, keys.post, keys.settings]).catch(() => {});
+    await this.env.MEDIA.delete([keys.input, keys.output, keys.segments, keys.caption, keys.origin, keys.post, keys.settings]).catch(() => {});
   }
 
   /**

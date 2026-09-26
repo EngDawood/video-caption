@@ -222,6 +222,11 @@ the change, so a font change costs one encode and a translator change costs no t
   later. `captionOf` in `describe.ts` strips the Telegram HTML, links and a trailing hashtag run.
   A link's caption is a stranger's text, so the prompt frames it as reference, never instructions.
   Not every platform returns one.
+  Who posted a link is kept too, in `jobs/<id>/origin.json`: the download API's `author` if it
+  ever sends one (not in its documented contract), else the handle in the URL (`authorFromUrl`),
+  with share links like `vm.tiktok.com` followed once to find it. Instagram's `/reel/<id>` and
+  YouTube's `watch?v=` name nobody, so those go uncredited. The prompt credits the poster only
+  when they are clearly an outlet, organisation or public figure, never a private account.
 - **A correction is addressed by its timestamp, not its index.** The cue list is posted as `<pre>`
   blocks so Telegram gives each one a copy button, and a pasted-back block is matched on start
   time within 0.6 s. `BLOCK` in `bot/edit/corrections.ts` is also the predicate deciding whether a plain message
