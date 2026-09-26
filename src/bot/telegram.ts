@@ -17,17 +17,31 @@ export interface TgFile {
   file_size?: number;
 }
 
+export interface TgPhotoSize {
+  file_id: string;
+  width?: number;
+  height?: number;
+}
+
 export interface TgMessage {
   message_id: number;
   chat: { id: number };
-  video?: { file_id: string; file_size?: number; duration?: number; mime_type?: string };
-  document?: { file_id: string; file_size?: number; mime_type?: string; file_name?: string };
-  video_note?: { file_id: string; file_size?: number; duration?: number };
+  video?: {
+    file_id: string;
+    file_size?: number;
+    duration?: number;
+    mime_type?: string;
+    width?: number;
+    height?: number;
+    thumbnail?: TgPhotoSize;
+  };
+  document?: { file_id: string; file_size?: number; mime_type?: string; file_name?: string; thumbnail?: TgPhotoSize };
+  video_note?: { file_id: string; file_size?: number; duration?: number; length?: number; thumbnail?: TgPhotoSize };
   text?: string;
   /** Text attached to a media message — a link can arrive here instead. */
   caption?: string;
   /** Present on a photo message: how a confirm card is told apart from a text one. */
-  photo?: Array<{ file_id: string }>;
+  photo?: TgPhotoSize[];
   /** The message this one answers — how a reply to a 📤 card is recognised. */
   reply_to_message?: { message_id: number };
 }
@@ -166,8 +180,15 @@ export function telegram(token: string) {
       return res.arrayBuffer();
     },
 
-    /** Send a photo from raw bytes — the burned-frame preview, which has no URL to hand Telegram. */
-    async sendPhotoFile(chatId: number, photo: ArrayBuffer, opts: { caption?: string; replyTo?: number } = {}) {
+    /**
+     * Send a photo from raw bytes — the burned-frame preview and the 🧾 card's
+     * picture, neither of which has a URL to hand Telegram.
+     */
+    async sendPhotoFile(
+      chatId: number,
+      photo: ArrayBuffer | Uint8Array,
+      opts: { caption?: string; replyTo?: number; keyboard?: InlineKeyboard; png?: boolean } = {},
+    ): Promise<TgMessage> {
       const form = new FormData();
       form.append('chat_id', String(chatId));
       if (opts.caption) form.append('caption', opts.caption);
@@ -175,11 +196,43 @@ export function telegram(token: string) {
         form.append('reply_to_message_id', String(opts.replyTo));
         form.append('allow_sending_without_reply', 'true');
       }
-      form.append('photo', new File([photo], 'preview.jpg', { type: 'image/jpeg' }));
+      if (opts.keyboard) {
+        form.append('reply_markup', JSON.stringify({ inline_keyboard: opts.keyboard }));
+      }
+      form.append('photo', photoFile(photo, opts.png));
 
       const res = await fetch(`${API}/bot${token}/sendPhoto`, { method: 'POST', body: form });
-      const data = (await res.json()) as { ok: boolean; description?: string };
+      const data = (await res.json()) as { ok: boolean; result?: TgMessage; description?: string };
       if (!data.ok) throw new Error(`telegram sendPhoto failed: ${data.description ?? res.status}`);
+      return data.result as TgMessage;
+    },
+
+    /**
+     * Swap a photo message's picture in place, with its caption and buttons —
+     * how the 🧾 card redraws after a setting changes. Throws, so the caller
+     * can fall back to a caption-only edit.
+     */
+    async editMessagePhoto(
+      chatId: number,
+      messageId: number,
+      photo: ArrayBuffer | Uint8Array,
+      opts: { caption?: string; keyboard?: InlineKeyboard; png?: boolean } = {},
+    ): Promise<void> {
+      const form = new FormData();
+      form.append('chat_id', String(chatId));
+      form.append('message_id', String(messageId));
+      form.append(
+        'media',
+        JSON.stringify({ type: 'photo', media: 'attach://picture', ...(opts.caption ? { caption: opts.caption } : {}) }),
+      );
+      if (opts.keyboard) {
+        form.append('reply_markup', JSON.stringify({ inline_keyboard: opts.keyboard }));
+      }
+      form.append('picture', photoFile(photo, opts.png));
+
+      const res = await fetch(`${API}/bot${token}/editMessageMedia`, { method: 'POST', body: form });
+      const data = (await res.json()) as { ok: boolean; description?: string };
+      if (!data.ok) throw new Error(`telegram editMessageMedia failed: ${data.description ?? res.status}`);
     },
 
     async sendVideo(chatId: number, video: ArrayBuffer, opts: { caption?: string; replyTo?: number } = {}) {
@@ -230,6 +283,26 @@ export function telegram(token: string) {
       if (!data.ok) throw new Error(`telegram sendDocument failed: ${data.description ?? res.status}`);
     },
   };
+}
+
+const photoFile = (photo: ArrayBuffer | Uint8Array, png?: boolean) =>
+  png
+    ? new File([photo], 'preview.png', { type: 'image/png' })
+    : new File([photo], 'preview.jpg', { type: 'image/jpeg' });
+
+/**
+ * The thumbnail Telegram made for an uploaded video, and the video's frame
+ * size where Telegram reports one — what the 🧾 card draws its picture on.
+ */
+export function videoPicture(message: TgMessage): { thumb?: string; width?: number; height?: number } {
+  if (message.video) {
+    return { thumb: message.video.thumbnail?.file_id, width: message.video.width, height: message.video.height };
+  }
+  if (message.video_note) {
+    const side = message.video_note.length;
+    return { thumb: message.video_note.thumbnail?.file_id, width: side, height: side };
+  }
+  return { thumb: message.document?.thumbnail?.file_id };
 }
 
 /** Pull a usable video file id out of an update, whatever form it arrived in. */

@@ -21,6 +21,16 @@
 		},
 	],
 	"workers_dev": true,
+	// The 🧾 card's picture is drawn in the Worker (src/captions/mockup.ts), so
+	// the caption fonts ship in the bundle as raw bytes. .wasm needs no rule:
+	// wrangler compiles an imported one by default.
+	"rules": [
+		{
+			"type": "Data",
+			"globs": ["**/*.ttf"],
+			"fallthrough": true
+		}
+	],
 	"observability": {
 		"enabled": true,
 		// Traces are separate from logs and off unless named — they are what shows

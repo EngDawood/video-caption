@@ -302,24 +302,75 @@ function applyOverrides(base: PresetStyle, opts: AssOptions): PresetStyle {
 }
 
 /**
- * Build an ASS file. Font, size, outline and margins are baked into the Style
- * line, so the `ass` filter needs nothing but `fontsdir`.
+ * Every number the Style line is built from, in frame pixels.
+ *
+ * Split out of `buildAss` so the 🧾 card's picture (`mockup.ts`) draws from
+ * the same sizes, colours and margins the burn does rather than a copy of
+ * them that could drift.
  */
-export function buildAss(segments: Segment[], opts: AssOptions): string {
+export interface ResolvedStyle {
+  width: number;
+  height: number;
+  rtl: boolean;
+  fontSize: number;
+  /** ASS colours, &HAABBGGRR. */
+  primary: string;
+  outlineColour: string;
+  backColour: string;
+  borderStyle: 1 | 3;
+  outline: number;
+  shadow: number;
+  /** ASS numpad alignment. */
+  align: number;
+  marginH: number;
+  marginV: number;
+  bold: boolean;
+}
+
+export function resolveStyle(opts: AssOptions): ResolvedStyle {
   const width = opts.width || 1280;
   const height = opts.height || 720;
   const rtl = opts.rtl !== false;
   const style = applyOverrides(PRESETS[opts.preset ?? 'clean'] ?? PRESETS.clean, opts);
-  const position = opts.position ?? 'bottom';
-
+  const place = POSITIONS[opts.position ?? 'bottom'] ?? POSITIONS.bottom;
   const fontSize = fontSizeFor(height, opts.size, rtl);
 
-  const outline = round2(fontSize * OUTLINE_RATIO[style.outline]);
-  const shadow = round2(fontSize * 0.035 * style.shadow);
-  const place = POSITIONS[position] ?? POSITIONS.bottom;
-  const marginV = Math.round(height * 0.045 * place.margin);
-  const marginH = Math.round(width * MARGIN_H_RATIO);
-  const bold = style.bold && opts.allowBold ? -1 : 0;
+  return {
+    width,
+    height,
+    rtl,
+    fontSize,
+    primary: style.primary,
+    outlineColour: style.outlineColour,
+    backColour: style.backColour,
+    borderStyle: style.borderStyle,
+    outline: round2(fontSize * OUTLINE_RATIO[style.outline]),
+    shadow: round2(fontSize * 0.035 * style.shadow),
+    align: place.align,
+    marginH: Math.round(width * MARGIN_H_RATIO),
+    marginV: Math.round(height * 0.045 * place.margin),
+    bold: style.bold && !!opts.allowBold,
+  };
+}
+
+/**
+ * Build an ASS file. Font, size, outline and margins are baked into the Style
+ * line, so the `ass` filter needs nothing but `fontsdir`.
+ */
+export function buildAss(segments: Segment[], opts: AssOptions): string {
+  const {
+    width,
+    height,
+    rtl,
+    fontSize,
+    outline,
+    shadow,
+    align,
+    marginH,
+    marginV,
+    ...style
+  } = resolveStyle(opts);
+  const bold = style.bold ? -1 : 0;
 
   const header = [
     '[Script Info]',
@@ -343,7 +394,7 @@ export function buildAss(segments: Segment[], opts: AssOptions): string {
       `${bold},0,0,0`,
       '100,100,0,0',
       `${style.borderStyle},${outline},${shadow}`,
-      `${place.align},${marginH},${marginH},${marginV}`,
+      `${align},${marginH},${marginH},${marginV}`,
       '1', // Encoding 1 = Unicode; set explicitly so legacy fonts skip ANSI mode.
     ].join(','),
     '',
@@ -393,8 +444,17 @@ export function buildAssForSettings(
   settings: CaptionSettings,
   meta: Pick<VideoMeta, 'width' | 'height'>,
 ): string {
+  return buildAss(segments, assOptionsFor(settings, meta, segments));
+}
+
+/** The `AssOptions` a burn uses for these settings — shared with `mockup.ts`. */
+export function assOptionsFor(
+  settings: CaptionSettings,
+  meta: Pick<VideoMeta, 'width' | 'height'>,
+  segments: { text: string }[],
+): AssOptions {
   const font = FONTS[settings.font];
-  return buildAss(segments, {
+  return {
     font: font.family,
     width: meta.width ?? 1280,
     height: meta.height ?? 720,
@@ -405,7 +465,7 @@ export function buildAssForSettings(
     color: settings.color,
     background: settings.background,
     allowBold: font.hasBold,
-  });
+  };
 }
 
 /** ASS timestamps are H:MM:SS.cc (centiseconds, hours not zero-padded). */

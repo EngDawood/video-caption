@@ -19,7 +19,7 @@ import {
 } from './bot/jobs';
 import { MENU_TITLE, handleMenuCallback, rootKeyboard, summary } from './bot/menu';
 import { loadSettings } from './captions/settings';
-import { extractVideo, telegram, type BotCommand, type TgUpdate } from './bot/telegram';
+import { extractVideo, telegram, videoPicture, type BotCommand, type TgUpdate } from './bot/telegram';
 import type { CaptionSettings } from './captions/settings';
 import type { Env } from './types';
 import { usageReport } from './bot/usage';
@@ -366,7 +366,13 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
     // captioned with before the transcription is paid for. A card that could
     // not be parked falls through to the job, so a video is never lost to it.
     if (settings.confirm === 'on') {
-      const asked = await sendStartCard(env, chatId, { ...upload, messageId: message.message_id }, settings);
+      const asked = await sendStartCard(
+        env,
+        chatId,
+        { ...upload, messageId: message.message_id },
+        settings,
+        videoPicture(message),
+      );
       if (asked) return;
     }
 

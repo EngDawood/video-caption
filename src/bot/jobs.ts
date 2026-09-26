@@ -11,8 +11,9 @@ import {
   type CaptionSettings,
   type SettingsField,
 } from '../captions/settings';
+import { MOCKUP_FIELDS, renderMockup } from '../captions/mockup';
 import { fieldKeyboard, readChoice, rootKeyboard, shortLabel, type MenuScope } from './menu';
-import { telegram, type InlineKeyboard } from './telegram';
+import { telegram, type InlineKeyboard, type TgMessage } from './telegram';
 import type { Env } from '../types';
 
 /**
@@ -46,6 +47,7 @@ const CANCEL_TTL_SECONDS = 3600;
 
 const pendingKey = (id: string) => `pending:${id}`;
 const startKey = (token: string) => `start:${token}`;
+const pictureKey = (token: string) => `startpic:${token}`;
 export const cancelKey = (token: string) => `cancel:${token}`;
 
 interface Pending {
@@ -72,6 +74,20 @@ interface StartSession {
   messageId: number;
   /** The one-line description of a resolved link, kept so redraws keep it. */
   preview?: string;
+}
+
+/**
+ * What the 🧾 card's picture is drawn on: a Telegram file id for a JPEG
+ * thumbnail, and the video's frame size when Telegram reported one.
+ *
+ * Kept under its own key rather than in `StartSession`, because a link's
+ * thumbnail only has a Telegram file id once the card itself has been sent —
+ * and the session is written before that, once, like every draft here.
+ */
+interface CardPicture {
+  thumb: string;
+  width?: number;
+  height?: number;
 }
 
 export function isOfferCallback(data: string): boolean {
@@ -215,7 +231,7 @@ export async function sendOffer(
       chatId,
       { sourceUrl: url, messageId, preview: card },
       settings,
-      media.thumbnail,
+      media.thumbnail ? { url: media.thumbnail } : undefined,
     );
     // Only a KV write that did not land gets here, and a link the user is
     // waiting on is better served by the plain offer below than by an error.
@@ -310,8 +326,28 @@ const START_HINT = [
   'Your chat defaults stay as they are.',
 ].join('\n');
 
-const startBody = (preview?: string) =>
-  [START_TITLE, ...(preview ? [preview] : []), '', START_HINT].join('\n');
+/** Under the picture, so a sketch is never mistaken for the burn itself. */
+const PICTURE_NOTE = '🖼 Sample text on your thumbnail. A close sketch, not the exact render.';
+
+const startBody = (preview?: string, picture?: boolean) =>
+  [START_TITLE, ...(preview ? [preview] : []), '', START_HINT, ...(picture ? ['', PICTURE_NOTE] : [])].join('\n');
+
+/** The largest size of a photo message — the one Telegram re-encoded least. */
+const largestPhoto = (message: TgMessage) => message.photo?.[message.photo.length - 1];
+
+/**
+ * Draw the 🧾 card's picture: sample captions in these settings on the
+ * thumbnail. Null on any failure — the card still works without it.
+ */
+async function drawCard(env: Env, picture: CardPicture, settings: CaptionSettings): Promise<Uint8Array | null> {
+  try {
+    const image = await telegram(env.TELEGRAM_BOT_TOKEN).download(picture.thumb);
+    return await renderMockup({ settings, image, width: picture.width, height: picture.height });
+  } catch (err) {
+    console.error('[jobs] could not draw the card picture:', err);
+    return null;
+  }
+}
 
 const startScope = (token: string, settings: CaptionSettings): MenuScope => ({
   open: (field) => `gm:${token}:${encodeSettings(settings)}:${field}`,
@@ -333,6 +369,13 @@ const startScope = (token: string, settings: CaptionSettings): MenuScope => ({
 /**
  * Ask for approval before anything is spent.
  *
+ * With a thumbnail the card is a picture of these settings on it (see
+ * `mockup.ts`), redrawn whenever a setting that changes it is picked. An
+ * upload's thumbnail already has a Telegram file id; a link's is only a URL,
+ * so the card goes out with the plain thumbnail first — Telegram fetches it
+ * and turns it into a JPEG it will hand back by file id — and is swapped for
+ * the drawn one straight after.
+ *
  * Returns false when the session could not be parked, so the caller can fall
  * back to starting the job rather than leaving the user with a card no tap can
  * do anything with.
@@ -342,7 +385,7 @@ export async function sendStartCard(
   chatId: number,
   session: StartSession,
   settings: CaptionSettings,
-  thumbnail?: string,
+  picture?: { url: string } | { thumb?: string; width?: number; height?: number },
 ): Promise<boolean> {
   if (!env.CAPTION_SETTINGS) return false;
 
@@ -358,22 +401,61 @@ export async function sendStartCard(
     return false;
   }
 
-  const body = startBody(session.preview);
   const keyboard = rootKeyboard(settings, startScope(token, settings));
+  const park = (p: CardPicture) =>
+    env.CAPTION_SETTINGS!.put(pictureKey(token), JSON.stringify(p), { expirationTtl: OFFER_TTL_SECONDS })
+      .then(() => true)
+      .catch((err) => {
+        console.error('[jobs] could not park the card picture:', err);
+        return false;
+      });
+
+  if (picture && 'thumb' in picture && picture.thumb) {
+    const stored: CardPicture = { thumb: picture.thumb, width: picture.width, height: picture.height };
+    const png = (await park(stored)) ? await drawCard(env, stored, settings) : null;
+    if (png) {
+      try {
+        await tg.sendPhotoFile(chatId, png, {
+          caption: startBody(session.preview, true),
+          replyTo: session.messageId,
+          keyboard,
+          png: true,
+        });
+        return true;
+      } catch (err) {
+        console.error('[jobs] could not send the card picture:', err);
+      }
+    }
+  }
 
   // A link's thumbnail is worth keeping, but it is optional and its URL can be
   // as short-lived as the media one — so a failed photo send falls back to the
   // same card as text.
-  if (thumbnail) {
-    const sent = await tg.sendPhoto(chatId, thumbnail, {
-      caption: body,
+  if (picture && 'url' in picture) {
+    const sent = await tg.sendPhoto(chatId, picture.url, {
+      caption: startBody(session.preview),
       replyTo: session.messageId,
       keyboard,
     });
-    if (sent) return true;
+    if (sent) {
+      const thumb = largestPhoto(sent);
+      if (thumb && (await park({ thumb: thumb.file_id }))) {
+        const png = await drawCard(env, { thumb: thumb.file_id }, settings);
+        if (png) {
+          await tg
+            .editMessagePhoto(chatId, sent.message_id, png, {
+              caption: startBody(session.preview, true),
+              keyboard,
+              png: true,
+            })
+            .catch((err) => console.error('[jobs] could not swap in the card picture:', err));
+        }
+      }
+      return true;
+    }
   }
 
-  await tg.sendMessage(chatId, body, session.messageId, keyboard);
+  await tg.sendMessage(chatId, startBody(session.preview), session.messageId, keyboard);
   return true;
 }
 
@@ -411,6 +493,7 @@ export async function handleStartCallback(
 
   if (verb === 'gx') {
     await env.CAPTION_SETTINGS?.delete(startKey(token)).catch(() => {});
+    await env.CAPTION_SETTINGS?.delete(pictureKey(token)).catch(() => {});
     await tg.answerCallbackQuery(callbackId, 'Cancelled');
     await rewrite('❌ Cancelled.');
     return;
@@ -420,12 +503,18 @@ export async function handleStartCallback(
   // structural floor for a truncated or corrupted one — no KV read per tap.
   const settings = decodeSettings(code ?? '', defaults(env));
   const scope = startScope(token, settings);
+  // Only a photo card can carry the picture, and a text one never had one.
+  const picture =
+    isPhotoCard && env.CAPTION_SETTINGS
+      ? await env.CAPTION_SETTINGS.get<CardPicture>(pictureKey(token), 'json')
+      : null;
+  const body = startBody(session.preview, Boolean(picture));
 
   switch (verb) {
     case 'gm': {
       if (rawField === 'root') {
         await tg.answerCallbackQuery(callbackId);
-        await rewrite(startBody(session.preview), rootKeyboard(settings, scope));
+        await rewrite(body, rootKeyboard(settings, scope));
         return;
       }
 
@@ -443,7 +532,24 @@ export async function handleStartCallback(
       if (!field) return void (await tg.answerCallbackQuery(callbackId, 'Unknown option'));
 
       await tg.answerCallbackQuery(callbackId, `${MENUS[field].label}: ${shortLabel(field, settings[field])}`);
-      await rewrite(startBody(session.preview), rootKeyboard(settings, scope));
+      const keyboard = rootKeyboard(settings, scope);
+
+      // A change the picture shows redraws it; anything else is a caption
+      // edit, which is all it ever was. A failed redraw falls back to that
+      // too, leaving the previous picture up rather than no card at all.
+      if (picture && MOCKUP_FIELDS.has(field)) {
+        const png = await drawCard(env, picture, settings);
+        if (png) {
+          try {
+            await tg.editMessagePhoto(chatId, messageId, png, { caption: body, keyboard, png: true });
+            return;
+          } catch (err) {
+            console.error('[jobs] could not redraw the card picture:', err);
+          }
+        }
+      }
+
+      await rewrite(body, keyboard);
       return;
     }
 
@@ -451,6 +557,7 @@ export async function handleStartCallback(
       // Spent before the job is queued, so a second tap finds nothing and
       // cannot pay for the same video twice.
       await env.CAPTION_SETTINGS?.delete(startKey(token)).catch(() => {});
+      await env.CAPTION_SETTINGS?.delete(pictureKey(token)).catch(() => {});
 
       const source = session.sourceUrl
         ? ({ sourceUrl: session.sourceUrl } as const)
