@@ -56,7 +56,7 @@ export const BACKGROUNDS = {
 export type BackgroundId = keyof typeof BACKGROUNDS;
 
 export type CaptionPreset = 'clean' | 'hormozi' | 'cinematic' | 'youtube' | 'naskh';
-export type CaptionSize = 'xsmall' | 'small' | 'medium' | 'large' | 'xlarge';
+export type CaptionSize = 'xsmall' | 'small' | 'smedium' | 'medium' | 'large' | 'xlarge' | 'huge';
 /**
  * Where the caption block sits. `align` is the ASS numpad alignment and
  * `margin` scales the base edge margin, which is how the raised variants lift

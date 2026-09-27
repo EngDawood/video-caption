@@ -340,7 +340,7 @@ export const MENUS: Record<SettingsField, Menu> = {
     label: 'Size',
     icon: '🔠',
     // Append only, like every other option list: `encodeSettings` puts the
-    // index on the buttons, so the two new steps go on the end and the
+    // index on the buttons, so each new step goes on the end and the
     // keyboard reads them in size order via `layout`. The percentages are of
     // the medium default, which is the question the menu kept raising — small
     // and medium are 30% apart, not the same.
@@ -350,8 +350,10 @@ export const MENUS: Record<SettingsField, Menu> = {
       { value: 'large', label: 'Large — 150%' },
       { value: 'xsmall', label: 'Extra small — 55%' },
       { value: 'xlarge', label: 'Extra large — 200%' },
+      { value: 'smedium', label: 'Small-medium — 85%' },
+      { value: 'huge', label: 'Huge — 250%' },
     ],
-    layout: ['xsmall', 'small', 'medium', 'large', 'xlarge'],
+    layout: ['xsmall', 'small', 'smedium', 'medium', 'large', 'xlarge', 'huge'],
   },
   color: {
     label: 'Text colour',
