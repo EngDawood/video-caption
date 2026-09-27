@@ -226,7 +226,7 @@ the change, so a font change costs one encode and a translator change costs no t
   ever sends one (not in its documented contract), else the handle in the URL (`authorFromUrl`),
   with share links like `vm.tiktok.com` followed once to find it. Instagram's `/reel/<id>` and
   YouTube's `watch?v=` name nobody, so those go uncredited. The prompt credits the poster only
-  when they are clearly an outlet, organisation or public figure, never a private account.
+  when it is clearly an official body (outlet, organisation, institution), never a person.
 - **A correction is addressed by its timestamp, not its index.** The cue list is posted as `<pre>`
   blocks so Telegram gives each one a copy button, and a pasted-back block is matched on start
   time within 0.6 s. `BLOCK` in `bot/edit/corrections.ts` is also the predicate deciding whether a plain message
