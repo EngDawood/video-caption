@@ -107,15 +107,18 @@ const PRESETS: Record<CaptionPreset, PresetStyle> = {
  * Caption height as a multiple of the medium default.
  *
  * The original five steps keep the numbers they always had, so a stored
- * setting still means what it meant. `smedium` fills the gap between small
- * and medium; `huge` extends the range past xlarge rather than re-spacing it.
+ * setting still means what it meant. `smedium` and `mlarge` fill the gaps
+ * either side of medium; `lxlarge` fills the gap between large and xlarge;
+ * `huge` extends the range past xlarge rather than re-spacing it.
  */
 const SIZE_SCALE: Record<CaptionSize, number> = {
   xsmall: 0.55,
   small: 0.7,
   smedium: 0.85,
   medium: 1,
+  mlarge: 1.25,
   large: 1.5,
+  lxlarge: 1.75,
   xlarge: 2,
   huge: 2.5,
 };
