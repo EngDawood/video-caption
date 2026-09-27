@@ -28,6 +28,8 @@ export interface PublishJob {
   assetJobId: string;
   target: Target;
   caption: string;
+  /** Facebook's and LinkedIn's video title; Instagram has none. Absent on jobs queued before titles. */
+  title?: string;
   chatId: number;
   /** The confirmation card, which becomes the status line. */
   statusMessageId: number;
@@ -44,7 +46,7 @@ const ONCE: WorkflowStepConfig = { retries: { limit: 0, delay: '1 second' }, tim
 
 export class PublishWorkflow extends WorkflowEntrypoint<Env, PublishJob> {
   async run(event: WorkflowEvent<PublishJob>, step: WorkflowStep) {
-    const { assetJobId, target, caption, chatId, statusMessageId } = event.payload;
+    const { assetJobId, target, caption, title, chatId, statusMessageId } = event.payload;
     // Only Facebook's post call can honour it; treated as false everywhere else.
     const draft = Boolean(event.payload.draft) && target.platform === 'facebook';
     const env = this.env;
@@ -61,7 +63,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Env, PublishJob> {
         return signedOutputUrl(env, assetJobId);
       });
 
-      const link = await this.post(step, target, videoUrl, caption, draft);
+      const link = await this.post(step, target, videoUrl, caption, title || undefined, draft);
 
       await step.do('notify', async () => {
         const text = draft
@@ -87,6 +89,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Env, PublishJob> {
     target: Target,
     videoUrl: string,
     caption: string,
+    title: string | undefined,
     draft: boolean,
   ): Promise<string | null> {
     const env = this.env;
@@ -100,7 +103,10 @@ export class PublishWorkflow extends WorkflowEntrypoint<Env, PublishJob> {
             video_url: videoUrl,
             media_type: 'REELS',
             share_to_feed: true,
-            caption,
+            // Composio's schema says a hashtag must arrive as %23. Taken on
+            // its word, unverified: if a live post shows a literal "%23",
+            // this is the line to drop.
+            caption: caption.replace(/#/g, '%23'),
           });
           return container.id;
         });
@@ -140,6 +146,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Env, PublishJob> {
             page_id: target.targetId,
             file_url: videoUrl,
             description: caption,
+            title,
             published: !draft,
           });
           return video.id;
@@ -160,6 +167,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Env, PublishJob> {
             video_urn: videoUrn,
             // LinkedIn's own cap is 3000; the caption is already held to Instagram's 2200.
             commentary: caption,
+            title,
           });
           return post.post_id;
         });

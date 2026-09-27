@@ -240,7 +240,7 @@ the change, so a font change costs one encode and a translator change costs no t
   ever sends one (not in its documented contract), else the handle in the URL (`authorFromUrl`),
   with share links like `vm.tiktok.com` followed once to find it. Instagram's `/reel/<id>` and
   YouTube's `watch?v=` name nobody, so those go uncredited. The prompt credits the poster only
-  when they are clearly an outlet, organisation or public figure, never a private account.
+  when it is clearly an official body (outlet, organisation, institution), never a person.
 - **A correction is addressed by its timestamp, not its index.** The cue list is posted as `<pre>`
   blocks so Telegram gives each one a copy button, and a pasted-back block is matched on start
   time within 0.6 s. `BLOCK` in `bot/edit/corrections.ts` is also the predicate deciding whether a plain message
@@ -260,6 +260,11 @@ the change, so a font change costs one encode and a translator change costs no t
   written once, like the edit session. Share posts the *latest* burn of that video, so a
   restyle after the card was posted changes what goes out. Unverified against the live
   Composio API from this machine: the REST calls follow the v3.1 docs, not a real run.
+  The card's text ends in a line of hashtags from `writeHashtags` — a separate call run beside
+  the post text, so the text's prompt can keep forbidding them — and its first line is the
+  Facebook/LinkedIn `title` (`titleOf`), re-derived on every reply so the two cannot drift.
+  Instagram gets its caption with `#` sent as `%23` because Composio's schema says so; that is
+  unverified, as is whether LinkedIn's Little Text Format wants `#` escaped.
 
 ## Environment
 

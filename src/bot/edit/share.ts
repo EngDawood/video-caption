@@ -1,6 +1,6 @@
 import { loadCues, loadPostCaption, loadPostOrigin } from '../../media/assets';
 import { loadSettings } from '../../captions/settings';
-import { postSourceOf, postTextLanguages, writePostText } from '../../pipeline/describe';
+import { postSourceOf, postTextLanguages, writeHashtags, writePostText } from '../../pipeline/describe';
 import { publishTargets, targetLabel, type Target } from '../../social/composio';
 import type { PublishJob } from '../../social/publish';
 import { telegram, type InlineKeyboard } from '../telegram';
@@ -39,7 +39,22 @@ interface ShareCard {
 /** What the second tap posts. Written once per 📤 tap, never rewritten. */
 interface ShareDraft {
   caption: string;
+  /** Facebook's and LinkedIn's video title. Absent on drafts written before titles were. */
+  title?: string;
   targets: Target[];
+}
+
+/** LinkedIn allows 400; a title longer than a line stops reading as one. */
+const TITLE_LIMIT = 100;
+
+/**
+ * The title: the caption's first line, which the writer is already told to
+ * make the hook. Derived rather than written separately, so a reply that
+ * rewrites the text rewrites the title with it and the two cannot drift.
+ */
+export function titleOf(caption: string): string {
+  const line = caption.split('\n').map((l) => l.trim()).find((l) => l && !l.startsWith('#')) ?? '';
+  return line.length <= TITLE_LIMIT ? line : `${line.slice(0, TITLE_LIMIT - 1).trimEnd()}…`;
 }
 
 /**
@@ -54,8 +69,10 @@ export function canShare(env: Env, chatId: number): boolean {
 
 /**
  * The caption: the 📣 post text in every configured language, one after the
- * other. Empty rather than failing when there is nothing to write it from —
- * the video can still be posted, and the preview shows that it has none.
+ * other, and a line of hashtags under it. Empty rather than failing when there
+ * is nothing to write it from — the video can still be posted, and the preview
+ * shows that it has none. The hashtags are written alongside the text, not
+ * after it, so they add no wait.
  */
 async function writeCaption(env: Env, chatId: number, assetJobId: string): Promise<string> {
   const [stored, posted, origin] = await Promise.all([
@@ -67,8 +84,16 @@ async function writeCaption(env: Env, chatId: number, assetJobId: string): Promi
   if (!source) return '';
 
   const { writer } = await loadSettings(env, chatId);
-  const texts = await Promise.all(postTextLanguages(env).map((lang) => writePostText(env, writer, source, lang)));
-  return texts.filter(Boolean).join('\n\n').slice(0, CAPTION_LIMIT);
+  const languages = postTextLanguages(env);
+  const [texts, tags] = await Promise.all([
+    Promise.all(languages.map((lang) => writePostText(env, writer, source, lang))),
+    writeHashtags(env, writer, source, languages),
+  ]);
+  const body = texts.filter(Boolean).join('\n\n');
+  if (!body) return '';
+  const hashtags = tags.join(' ');
+  if (!hashtags) return body.slice(0, CAPTION_LIMIT);
+  return `${body.slice(0, CAPTION_LIMIT - hashtags.length - 2)}\n\n${hashtags}`;
 }
 
 /**
@@ -104,10 +129,13 @@ async function sendShareCard(
   const text = [
     '📤 Post this video? Tap where.',
     '',
+    ...(draft.title && draft.targets.some((t) => t.platform !== 'instagram')
+      ? ['Title (Facebook, LinkedIn):', draft.title, '']
+      : []),
     'Text:',
     draft.caption || '(none — there was nothing to write it from)',
     '',
-    '✏️ Reply to this message to change the text.',
+    '✏️ Reply to this message to change the text. The title is its first line; the hashtags are its last.',
   ].join('\n');
   const card = await tg.sendMessage(chatId, text, replyTo, keyboard);
 
@@ -151,7 +179,7 @@ export async function handleShareReply(
   }
 
   await tg.editMessageText(chatId, repliedTo, '✏️ Text changed — use the card below.');
-  await sendShareCard(env, chatId, messageId, card.token, { ...draft, caption });
+  await sendShareCard(env, chatId, messageId, card.token, { ...draft, caption, title: titleOf(caption) });
   return true;
 }
 
@@ -179,7 +207,7 @@ export async function offerShare(
       return;
     }
 
-    await sendShareCard(env, chatId, session.messageId, token, { caption, targets });
+    await sendShareCard(env, chatId, session.messageId, token, { caption, title: titleOf(caption), targets });
   } catch (err) {
     console.error('[share] could not prepare a post:', err);
     await tg.sendMessage(chatId, '⚠️ Could not reach Composio. Tap 📤 again to retry.', session.messageId).catch(() => {});
@@ -240,6 +268,7 @@ export async function startShare(
     assetJobId: session.assetJobId,
     target,
     caption: draft.caption,
+    title: draft.title ?? titleOf(draft.caption),
     chatId,
     statusMessageId: status.message_id,
     // Only Facebook's button carries the 'd' suffix, so this is always false
