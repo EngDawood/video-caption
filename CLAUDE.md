@@ -246,6 +246,11 @@ the change, so a font change costs one encode and a translator change costs no t
   written once, like the edit session. Share posts the *latest* burn of that video, so a
   restyle after the card was posted changes what goes out. Unverified against the live
   Composio API from this machine: the REST calls follow the v3.1 docs, not a real run.
+  The card's text ends in a line of hashtags from `writeHashtags` — a separate call run beside
+  the post text, so the text's prompt can keep forbidding them — and its first line is the
+  Facebook/LinkedIn `title` (`titleOf`), re-derived on every reply so the two cannot drift.
+  Instagram gets its caption with `#` sent as `%23` because Composio's schema says so; that is
+  unverified, as is whether LinkedIn's Little Text Format wants `#` escaped.
 
 ## Environment
 
