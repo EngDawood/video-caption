@@ -1,6 +1,6 @@
 import { loadSettings } from '../../captions/settings';
 import { loadCues, loadPostCaption, loadPostOrigin } from '../../media/assets';
-import { postSourceOf, postTextLanguages, writePostText } from '../../pipeline/describe';
+import { postSourceOf, postTextLanguages, writeHashtags, writePostText } from '../../pipeline/describe';
 import { escapeHtml, telegram } from '../telegram';
 import type { Env } from '../../types';
 import type { EditSession } from './session';
@@ -55,7 +55,10 @@ export async function sendPostText(
   // /settings should apply to the next tap on any card still open.
   const { writer } = await loadSettings(env, chatId);
   const languages = postTextLanguages(env);
-  const texts = await Promise.all(languages.map((lang) => writePostText(env, writer, source, lang)));
+  const [texts, tags] = await Promise.all([
+    Promise.all(languages.map((lang) => writePostText(env, writer, source, lang))),
+    writeHashtags(env, writer, source, languages),
+  ]);
 
   const blocks = languages.flatMap((lang, i) => {
     const text = texts[i];
@@ -63,6 +66,9 @@ export async function sendPostText(
     const label = `${FLAGS[lang] ?? '🌐'} ${LANGUAGE_LABELS[lang] ?? lang}`;
     return [`${label}\n<pre>${escapeHtml(text)}</pre>`];
   });
+  // A block of their own, so they can be copied, trimmed or left off
+  // separately from the text.
+  if (blocks.length > 0 && tags.length > 0) blocks.push(`#️⃣ Hashtags\n<pre>${escapeHtml(tags.join(' '))}</pre>`);
 
   try {
     if (blocks.length === 0) {
