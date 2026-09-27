@@ -200,13 +200,14 @@ function messagesFor(source: PostSource, lang: string): Message[] {
             'ordinary personal account, or you cannot tell who it is from what you are given, leave it out. ' +
             'Never guess who a handle belongs to. '
           : '') +
-        'Write it the way a real person shares something they found worth watching with friends: warm, ' +
-        'plain everyday words, sentences of different lengths, an honest reaction where it fits. ' +
-        'Not a marketer, not a news bot. Avoid clickbait formulas ("you won\'t believe", "watch till the end"), ' +
-        'hype words, and filler like "in this video", "dive into" or "showcases". ' +
-        'Start with one opening line that gives a reason to watch, under 120 characters because the apps ' +
-        'cut the caption off after that, then a blank line, then two to four short sentences on what the ' +
-        'video is about and why it matters. ' +
+        'Keep the tone calm and natural, the way a real person shares something they found worth ' +
+        'watching with friends: plain everyday words, sentences of different lengths. Nothing sharp or ' +
+        'dramatic: no exaggeration, no urgency, no strong judgments or loaded words, at most one ' +
+        'exclamation mark. Not a marketer, not a news bot. Avoid clickbait formulas ("you won\'t believe", ' +
+        '"watch till the end"), hype words, and filler like "in this video", "dive into" or "showcases". ' +
+        'Start with one simple opening line saying what the video is, under 120 characters because the ' +
+        'apps cut the caption off after that, then a blank line, then two to four short sentences on what ' +
+        'the video is about. ' +
         'Use only what you are given: never invent names, places, numbers or claims. ' +
         'No hashtags, no emoji, no quotes around the text, no labels, no notes, no em dashes. ' +
         'Reply with the post text and nothing else. ' +
