@@ -298,10 +298,19 @@ the session; a repository is not the place for them. `Co-Authored-By:` is fine.
 
 ## Request log (D1)
 
-`requests` in D1 (`migrations/0001_requests.sql`, binding `DB`) holds one row per job: source
-(`url` keeps the link, `upload` keeps only the Telegram file id, never the bytes), settings, status,
-and the script as `source_srt` (what was said), `target_srt` (the translation), `script_srt` (both, as the bot sends it) and `segments` (JSON), with `source_lang` / `target_lang`. Written by `src/db/requests.ts`, best-effort:
-a D1 failure is logged and never fails a job. Rows are kept indefinitely; R2 files and the ✏️/📤
-KV records live 7 days (`r2-lifecycle`, `EDIT_TTL_SECONDS`, `SIGNED_LINK_SECONDS`). Setup (done):
-`npx wrangler d1 create video-caption`, put the id in `wrangler.jsonc`, `npm run db:migrate`.
-Unverified against a live D1 from this machine; only typecheck ran.
+`requests` in D1 (database `video-caption`, binding `DB`, schema in `migrations/0001_requests.sql`)
+holds one row per job, written by `src/db/requests.ts`:
+
+- **Source:** `source_type` is `url` (the link is kept in `source_url`) or `upload` (only the
+  Telegram file id, never the bytes).
+- **Script:** `source_srt` (what was said), `target_srt` (the translation), `script_srt` (both, as the
+  bot's script.srt) and `segments` (JSON `StoredCues`), with `source_lang` / `target_lang`. Written at
+  `store-cues`, and re-synced by ✍️ Fix text through `recordCorrection`.
+- **Also:** settings of the latest burn, status (`running`/`done`/`failed`), error, duration.
+- **Best-effort:** a D1 failure is logged and never fails a job; `DB` is optional in `Env`.
+- **Retention:** rows are kept indefinitely. R2 files, the ✏️/📤 KV records and signed output links
+  live 7 days (`r2-lifecycle`, `EDIT_TTL_SECONDS`, `SIGNED_LINK_SECONDS`).
+- **Setup:** database created and schema applied 2026-09-28 (by direct query, so wrangler's
+  migration table does not list 0001; `npm run db:migrate` is a safe no-op thanks to `IF NOT EXISTS`).
+  A new column needs a new numbered migration, applied with `npm run db:migrate`.
+- Unverified against a live D1 from a running job; only typecheck and the offline tests ran.
