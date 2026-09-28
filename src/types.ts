@@ -7,6 +7,8 @@ import type { PublishJob } from './social/publish';
 export interface Env {
   AI: Ai;
   MEDIA: R2Bucket;
+  /** Request log (one row per job). Optional so a missing binding never fails a job. */
+  DB?: D1Database;
   /** Per-chat caption settings. Without it the deployed defaults are used. */
   CAPTION_SETTINGS: KVNamespace;
   FFMPEG: DurableObjectNamespace<FfmpegContainer>;

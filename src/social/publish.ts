@@ -55,7 +55,7 @@ export class PublishWorkflow extends WorkflowEntrypoint<Env, PublishJob> {
 
     try {
       // Every platform fetches the video from this link while it processes it;
-      // it is good for a day.
+      // it is good for a week.
       const videoUrl = await step.do('link', async () => {
         if (!(await env.MEDIA.head(assetKeys(assetJobId).output))) {
           throw new NonRetryableError('that video is no longer stored — caption it again to post it');

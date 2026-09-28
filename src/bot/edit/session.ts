@@ -4,7 +4,7 @@ import type { Env } from '../../types';
 /** The KV records behind the per-video cards. Each is written once, never rewritten. */
 
 /** How long a delivered video stays restylable — and stays in R2. */
-export const EDIT_TTL_SECONDS = 24 * 60 * 60;
+export const EDIT_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 export const editKey = (token: string) => `edit:${token}`;
 

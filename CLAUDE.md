@@ -12,7 +12,7 @@ npm run deploy         # wrangler deploy (needs Docker for the container image)
 npm run types          # regenerate worker-configuration.d.ts from wrangler.jsonc
 npm run set-webhook    # point Telegram at the deployed worker; also publishes the ☰ menu
 npm run usage          # container usage + projected cost
-npm run r2-lifecycle   # one-time: expire jobs/ objects after 2 days
+npm run r2-lifecycle   # one-time: expire jobs/ objects after 7 days
 ```
 
 Endpoints (all secret-gated with `TELEGRAM_WEBHOOK_SECRET`):
@@ -72,7 +72,7 @@ timer — reading a script and pasting back a correction takes real time, so tha
 for the tap with no timeout. Turning both on together also skips the timer, for the same reason.
 
 A finished run leaves the input video, the burned `output.mp4` (for 📤 Share) and `segments.json`
-(transcript **and** translation) in R2 for 24h, which is what lets the ✏️ Edit card re-run at four depths — `full`, `retranscribe`,
+(transcript **and** translation) in R2 for a week, which is what lets the ✏️ Edit card re-run at four depths — `full`, `retranscribe`,
 `retranslate`, `restyle`. `pickMode` in `src/bot/edit/rerun.ts` picks the shallowest one that can serve
 the change, so a font change costs one encode and a translator change costs no transcription.
 
@@ -300,3 +300,22 @@ than implying it was tested. `npm run typecheck` is the real check.
 Never put a `claude.ai/code/session_...` link in a commit message, PR title or body, code
 comment, or anything else pushed to this repository. Session URLs are private to whoever opened
 the session; a repository is not the place for them. `Co-Authored-By:` is fine.
+
+## Request log (D1)
+
+`requests` in D1 (database `video-caption`, binding `DB`, schema in `migrations/0001_requests.sql`)
+holds one row per job, written by `src/db/requests.ts`:
+
+- **Source:** `source_type` is `url` (the link is kept in `source_url`) or `upload` (only the
+  Telegram file id, never the bytes).
+- **Script:** `source_srt` (what was said), `target_srt` (the translation), `script_srt` (both, as the
+  bot's script.srt) and `segments` (JSON `StoredCues`), with `source_lang` / `target_lang`. Written at
+  `store-cues`, and re-synced by ✍️ Fix text through `recordCorrection`.
+- **Also:** settings of the latest burn, status (`running`/`done`/`failed`), error, duration.
+- **Best-effort:** a D1 failure is logged and never fails a job; `DB` is optional in `Env`.
+- **Retention:** rows are kept indefinitely. R2 files, the ✏️/📤 KV records and signed output links
+  live 7 days (`r2-lifecycle`, `EDIT_TTL_SECONDS`, `SIGNED_LINK_SECONDS`).
+- **Setup:** database created and schema applied 2026-09-28 (by direct query, so wrangler's
+  migration table does not list 0001; `npm run db:migrate` is a safe no-op thanks to `IF NOT EXISTS`).
+  A new column needs a new numbered migration, applied with `npm run db:migrate`.
+- Unverified against a live D1 from a running job; only typecheck and the offline tests ran.

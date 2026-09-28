@@ -53,6 +53,16 @@
 			"remote": true
 		}
 	],
+	// Request log: one row per job, with its source, script (.srt) and status.
+	// Created; schema applied from migrations/0001_requests.sql.
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "video-caption",
+			"database_id": "179987a9-ce44-41b3-ac1c-745e04996521",
+			"migrations_dir": "migrations"
+		}
+	],
 	// Per-chat caption settings from the bot's /settings menu.
 	// Create with: npx wrangler kv namespace create CAPTION_SETTINGS
 	"kv_namespaces": [

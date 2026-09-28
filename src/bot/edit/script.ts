@@ -1,5 +1,6 @@
 import { sanitize } from '../../captions/text';
 import { loadCues, saveCues } from '../../media/assets';
+import { recordCorrection } from '../../db/requests';
 import { escapeHtml, telegram, type InlineKeyboard } from '../telegram';
 import type { Env, Segment, StoredCues } from '../../types';
 import { SOURCE_MARK, TARGET_MARK, applyCorrections, clock, parseCorrections, sourceRun } from './corrections';
@@ -74,6 +75,15 @@ export function buildSrt(stored: StoredCues): string {
   });
 
   return `${blocks.join('\n\n')}\n`;
+}
+
+/** One language alone as an .srt: the transcript when `which` is 'source', the translation otherwise. */
+export function buildSingleSrt(stored: StoredCues, which: 'source' | 'target'): string {
+  const cues = which === 'source' ? (stored.source ?? []) : stored.segments;
+  const blocks = cues.map(
+    (cue, i) => `${i + 1}\n${clock(cue.start)} --> ${clock(cue.end)}\n${sanitize(cue.text)}`,
+  );
+  return blocks.length ? `${blocks.join('\n\n')}\n` : '';
 }
 
 const SCRIPT_CAPTION = [
@@ -196,6 +206,7 @@ export async function handleTextCorrection(
   const { patched, doomed, missed, transcriptChanged } = applied;
   const source = stored.source ?? [];
   await saveCues(env, session.assetJobId, stored);
+  await recordCorrection(env, session.assetJobId, stored);
 
   // Correcting what was *said* only reaches the video through the translator,
   // so that case is offered its own button rather than being silently burned
