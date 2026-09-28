@@ -225,6 +225,15 @@ the change, so a font change costs one encode and a translator change costs no t
   `retranslate` and `retranscribe` rewrite it from the transcript, which is why the confirmation
   says so before offering that button. Deleting a cue drops its transcript run too, so a
   re-translate cannot resurrect a line the user removed.
+- **Arabic follows the Netflix Arabic Timed Text Style Guide.** `src/pipeline/arabic.ts` splits it:
+  `ARABIC_RULES` goes into the chat prompt (MSA only, names and acronyms transliterated, insults
+  at full strength, numbers one to ten in words), `tidyArabic` enforces punctuation and month
+  names on every translator's output. Names are therefore *not* kept in Latin for Arabic, unlike
+  every other target, and `leakedWords` counts any Latin word there as one for `repairLeaks`.
+  A phrase repeated back to back is one unit (`collapseRepeats`), translated once.
+- **Translation quality has a test harness.** `npm test` is offline; `npm run eval:translate`
+  runs the real translation path over `tests/translation/samples/` with any model and checks the
+  known meaning errors in `samples.ts`. A prompt change should be judged by it, before and after.
 - **Translated text is whitespace-normalised where it is produced, not at the burn.** `clean` only
   ever ran on STT output, so a translator that doubled a space had it burned in — a cue short
   enough to skip `resegment` never has its words rejoined. `translateSegments` normalises now, and
