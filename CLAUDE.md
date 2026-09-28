@@ -72,7 +72,7 @@ timer — reading a script and pasting back a correction takes real time, so tha
 for the tap with no timeout. Turning both on together also skips the timer, for the same reason.
 
 A finished run leaves the input video, the burned `output.mp4` (for 📤 Share) and `segments.json`
-(transcript **and** translation) in R2 for 24h, which is what lets the ✏️ Edit card re-run at four depths — `full`, `retranscribe`,
+(transcript **and** translation) in R2 for a week, which is what lets the ✏️ Edit card re-run at four depths — `full`, `retranscribe`,
 `retranslate`, `restyle`. `pickMode` in `src/bot/edit/rerun.ts` picks the shallowest one that can serve
 the change, so a font change costs one encode and a translator change costs no transcription.
 
@@ -295,3 +295,13 @@ than implying it was tested. `npm run typecheck` is the real check.
 Never put a `claude.ai/code/session_...` link in a commit message, PR title or body, code
 comment, or anything else pushed to this repository. Session URLs are private to whoever opened
 the session; a repository is not the place for them. `Co-Authored-By:` is fine.
+
+## Request log (D1)
+
+`requests` in D1 (`migrations/0001_requests.sql`, binding `DB`) holds one row per job: source
+(`url` keeps the link, `upload` keeps only the Telegram file id, never the bytes), settings, status,
+and the script as both `script_srt` and `segments`. Written by `src/db/requests.ts`, best-effort:
+a D1 failure is logged and never fails a job. Rows are kept indefinitely; R2 files and the ✏️/📤
+KV records live 7 days (`r2-lifecycle`, `EDIT_TTL_SECONDS`, `SIGNED_LINK_SECONDS`). Setup:
+`npx wrangler d1 create video-caption`, put the id in `wrangler.jsonc`, `npm run db:migrate`.
+Unverified against a live D1 from this machine; only typecheck ran.

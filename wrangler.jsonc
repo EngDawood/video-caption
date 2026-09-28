@@ -53,6 +53,17 @@
 			"remote": true
 		}
 	],
+	// Request log: one row per job, with its source, script (.srt) and status.
+	// Create with: npx wrangler d1 create video-caption, paste the id below,
+	// then npm run db:migrate.
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "video-caption",
+			"database_id": "REPLACE_WITH_ID",
+			"migrations_dir": "migrations"
+		}
+	],
 	// Per-chat caption settings from the bot's /settings menu.
 	// Create with: npx wrangler kv namespace create CAPTION_SETTINGS
 	"kv_namespaces": [

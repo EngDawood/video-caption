@@ -20,6 +20,7 @@ import { shortLabel } from '../bot/menu';
 import { cancelKey } from '../bot/jobs';
 import { queueRestyle } from '../bot/edit';
 import { telegram } from '../bot/telegram';
+import { recordRequest, recordScript, recordStatus } from '../db/requests';
 import type { CaptionJob, Env, Segment, StoredCues, VideoMeta } from '../types';
 
 const RETRY: WorkflowStepConfig = {
@@ -49,6 +50,9 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
     const settle = (text: string) => channel.settle(text);
 
     try {
+      if (mode === 'full') await step.do('record-request', RETRY, async () => recordRequest(env, event.payload));
+      else await recordStatus(env, assetJobId, 'running').catch(() => {});
+
       // Frozen for the whole run: a re-burn carries the draft the user just
       // built, and a first run pins the chat defaults as they were at queue
       // time rather than whatever a retry might read later. An API job has
@@ -203,6 +207,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
             keys.segments,
             JSON.stringify({ meta, segments: translated, source: transcript } satisfies StoredCues),
           );
+          await recordScript(env, assetJobId, { meta, segments: translated, source: transcript });
         });
 
         cues = translated;
@@ -335,6 +340,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
       });
 
       await step.do('cleanup', async () => {
+        await recordStatus(env, assetJobId, 'done', { settings });
         await ffmpeg.cleanup();
         await this.forgetCancelToken(event.payload.cancelToken);
 
@@ -363,6 +369,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       console.error(`[workflow] job ${jobId} failed:`, reason);
+      await recordStatus(env, assetJobId, 'failed', { error: reason });
       await channel.fail(reason);
       await ffmpeg.cleanup();
       await this.forgetCancelToken(event.payload.cancelToken);

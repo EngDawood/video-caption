@@ -13,8 +13,8 @@ export function outputUrl(env: Env, jobId: string): string {
   return `${base}/api/jobs/${jobId}/output`;
 }
 
-/** Long enough to open the link later that day; R2 expires the video after two anyway. */
-const SIGNED_LINK_SECONDS = 24 * 60 * 60;
+/** Matches the week R2 keeps the video. */
+const SIGNED_LINK_SECONDS = 7 * 24 * 60 * 60;
 
 async function hmac(key: string, message: string): Promise<ArrayBuffer> {
   const hmacKey = await crypto.subtle.importKey(
