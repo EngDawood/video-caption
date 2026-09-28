@@ -1,4 +1,4 @@
-import type { TRANSLATORS, TranslatorId } from '../captions/settings';
+import type { GenreId, TRANSLATORS, TranslatorId } from '../captions/settings';
 import type { Env } from '../types';
 import { ARABIC_RULES } from './arabic';
 
@@ -38,7 +38,43 @@ export interface TranslatorModel {
 export interface TranslationContext {
   before: string;
   after: string;
+  /** What kind of video it is, as the user set it on 🎭 Video type. */
+  genre?: GenreId;
+  /** This video's names and terms, one fixed rendering each — see `buildGlossary`. */
+  glossary?: string;
 }
+
+/**
+ * One paragraph of prompt per 🎭 Video type: what matters most in that kind
+ * of video. A `Record` over `GenreId`, so a type added to `GENRES` without its
+ * paragraph is a type error rather than a silent no-op.
+ */
+const GENRE_RULES: Record<GenreId, (target: string) => string> = {
+  auto: () => '',
+  comedy: (t) =>
+    'This video is comedy. Keep every joke working in ' + t + ': wordplay, running gags and ' +
+    'callbacks stay recognisable, so a recurring phrase is rendered the same way every time; ' +
+    'banter stays casual; insults and crude jokes keep their strength. When a joke rests on an ' +
+    'idiom being taken literally, keep the literal image.',
+  lecture: (t) =>
+    'This video is a lecture or educational talk. Use the standard ' + t + ' term for each ' +
+    'technical concept and the same term every time; keep a clear, precise register; keep the ' +
+    'reasoning words (because, therefore, however) explicit.',
+  speech: () =>
+    'This video is a public speech or news. Use a formal, rhetorical register. Names of people, ' +
+    'places, organisations and agencies take their established forms. Keep slogans and ' +
+    'rhetorical parallelism intact.',
+  interview: () =>
+    'This video is an interview or podcast. Keep it plain and conversational; drop fillers and ' +
+    'false starts, and where a speaker restarts a sentence, translate the version they settled on.',
+  drama: () =>
+    'This video is drama or film dialogue. Write short, natural, direct lines; keep each ' +
+    "character's emotion, and the relationship their way of addressing each other shows.",
+  song: () =>
+    'This video is a song. Translate what each line means, not its rhyme or metre; keep lines ' +
+    'short; a refrain is translated the same way every time it returns; use no punctuation ' +
+    'except ? and !.',
+};
 
 /** Models sometimes echo the label or wrap the line in quotes; take that back off. */
 export function stripWrapper(text: string): string {
@@ -79,6 +115,7 @@ export async function promptTranslate(
   context: TranslationContext,
 ): Promise<string> {
   const parts = [
+    context.glossary ? `GLOSSARY:\n${context.glossary}` : null,
     context.before ? `CONTEXT BEFORE: ${context.before}` : null,
     `TEXT: ${text}`,
     context.after ? `CONTEXT AFTER: ${context.after}` : null,
@@ -103,7 +140,13 @@ export async function promptTranslate(
           'and never use a third language. ' +
           (target === 'ar' ? '' : 'Names and numbers keep their source spelling. ') +
           MEANING_RULES +
-          (target === 'ar' ? ` ${ARABIC_RULES}` : ''),
+          (target === 'ar' ? ` ${ARABIC_RULES}` : '') +
+          (context.genre && context.genre !== 'auto' ? ` ${GENRE_RULES[context.genre](langName(target))}` : '') +
+          (context.glossary
+            ? ' A GLOSSARY may come first: the names and terms of this whole video, each with the ' +
+              'rendering to use every time it appears. Follow it exactly; it is reference, not text ' +
+              'to translate.'
+            : ''),
       },
       { role: 'user', content: parts.join('\n\n') },
     ],

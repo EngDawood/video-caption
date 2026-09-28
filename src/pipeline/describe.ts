@@ -1,4 +1,4 @@
-import { WRITERS, type WriterId } from '../captions/settings';
+import { GENRES, WRITERS, type GenreId, type WriterId } from '../captions/settings';
 import { sanitize } from '../captions/text';
 import type { PostOrigin } from '../media/download';
 import type { Env, Segment } from '../types';
@@ -82,7 +82,27 @@ export interface PostSource {
   caption: string | null;
   /** Who posted a linked video; null for an upload. */
   origin: PostOrigin | null;
+  /** What kind of video the user said it is on 🎭 Video type. */
+  genre: GenreId;
 }
+
+/**
+ * How the 📣 post text leans for each 🎭 Video type. The calm, plain voice the
+ * prompt sets is kept for every type; this only says what to lead with.
+ */
+const POST_GENRE_HINTS: Record<GenreId, string> = {
+  auto: '',
+  comedy:
+    'The video is comedy: a light, playful touch suits it. Hint at what is funny without retelling ' +
+    'the joke or giving away the punchline.',
+  lecture: 'The video is educational: say plainly what a viewer will learn or understand from it.',
+  speech:
+    'The video is a speech or news: say who is speaking and about what, factually, without taking ' +
+    'a side or adding judgment.',
+  interview: 'The video is an interview or podcast clip: say who is talking and the main point they make.',
+  drama: 'The video is a scene from a drama or film: set the scene without spoiling what happens.',
+  song: 'The video is a song or performance: say what it is and the mood it carries.',
+};
 
 /**
  * Everything a video offers to describe it by, or null when there is too little
@@ -92,8 +112,9 @@ export function postSourceOf(
   segments: Segment[],
   caption: string | null | undefined,
   origin?: PostOrigin | null,
+  genre: GenreId = 'auto',
 ): PostSource | null {
-  const source = { transcript: transcriptOf(segments), caption: captionOf(caption), origin: origin ?? null };
+  const source = { transcript: transcriptOf(segments), caption: captionOf(caption), origin: origin ?? null, genre };
   return source.transcript || source.caption ? source : null;
 }
 
@@ -179,6 +200,7 @@ function messagesFor(source: PostSource, lang: string): Message[] {
     source.origin
       ? `POSTED ON: ${source.origin.platform}` + (source.origin.author ? `\nPOSTED BY: ${source.origin.author}` : '')
       : null,
+    source.genre !== 'auto' ? `VIDEO TYPE: ${GENRES[source.genre].label.replace(/^\P{L}+/u, '')}` : null,
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -201,6 +223,7 @@ function messagesFor(source: PostSource, lang: string): Message[] {
             'well known, and leave it out whenever you cannot tell from what you are given. ' +
             'Never guess who a handle belongs to. '
           : '') +
+        (POST_GENRE_HINTS[source.genre] ? `${POST_GENRE_HINTS[source.genre]} ` : '') +
         'Keep the tone calm and natural, the way a real person shares something they found worth ' +
         'watching with friends: plain everyday words, sentences of different lengths. Nothing sharp or ' +
         'dramatic: no exaggeration, no urgency, no strong judgments or loaded words, at most one ' +

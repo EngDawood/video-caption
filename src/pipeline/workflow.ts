@@ -195,6 +195,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
                   settings.sourceLang,
                   settings.targetLang,
                   settings.translator,
+                  settings.genre,
                 );
               })) as Segment[]);
 
@@ -279,7 +280,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
               loadPostCaption(env, assetJobId),
               loadPostOrigin(env, assetJobId),
             ]);
-            const source = postSourceOf(transcript.length > 0 ? transcript : cues, caption, origin);
+            const source = postSourceOf(transcript.length > 0 ? transcript : cues, caption, origin, settings.genre);
             if (!source) return { languages: 0 };
 
             await say('⏳ Writing the post text…');
