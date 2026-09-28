@@ -76,6 +76,15 @@ export function buildSrt(stored: StoredCues): string {
   return `${blocks.join('\n\n')}\n`;
 }
 
+/** One language alone as an .srt: the transcript when `which` is 'source', the translation otherwise. */
+export function buildSingleSrt(stored: StoredCues, which: 'source' | 'target'): string {
+  const cues = which === 'source' ? (stored.source ?? []) : stored.segments;
+  const blocks = cues.map(
+    (cue, i) => `${i + 1}\n${clock(cue.start)} --> ${clock(cue.end)}\n${sanitize(cue.text)}`,
+  );
+  return blocks.length ? `${blocks.join('\n\n')}\n` : '';
+}
+
 const SCRIPT_CAPTION = [
   '📄 The script for this video.',
   '',

@@ -12,7 +12,11 @@ CREATE TABLE IF NOT EXISTS requests (
   error            TEXT,
   duration         REAL,
   settings         TEXT,                    -- JSON, what the latest burn used
-  script_srt       TEXT,                    -- the .srt: transcript + translation
+  source_lang      TEXT,
+  target_lang      TEXT,
+  source_srt       TEXT,                    -- what was said, alone
+  target_srt       TEXT,                    -- the translation, alone
+  script_srt       TEXT,                    -- both together (the bot's script.srt)
   segments         TEXT,                    -- JSON StoredCues
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL

@@ -1,4 +1,4 @@
-import { buildSrt } from '../bot/edit/script';
+import { buildSingleSrt, buildSrt } from '../bot/edit/script';
 import type { CaptionSettings } from '../captions/settings';
 import type { CaptionJob, Env, StoredCues } from '../types';
 
@@ -36,13 +36,24 @@ export async function recordRequest(env: Env, job: CaptionJob): Promise<void> {
 }
 
 /** Keep the script (as .srt and as cues) next to the request. */
-export async function recordScript(env: Env, assetJobId: string, stored: StoredCues): Promise<void> {
+export async function recordScript(env: Env, assetJobId: string, stored: StoredCues, settings: CaptionSettings): Promise<void> {
   await run(
     env,
     'recordScript',
     env.DB?.prepare(
-      'UPDATE requests SET script_srt = ?, segments = ?, duration = ?, updated_at = ? WHERE job_id = ?',
-    ).bind(buildSrt(stored), JSON.stringify(stored), stored.meta.duration, Date.now(), assetJobId),
+      `UPDATE requests SET source_lang = ?, target_lang = ?, source_srt = ?, target_srt = ?, script_srt = ?,
+        segments = ?, duration = ?, updated_at = ? WHERE job_id = ?`,
+    ).bind(
+      settings.sourceLang,
+      settings.targetLang,
+      buildSingleSrt(stored, 'source'),
+      buildSingleSrt(stored, 'target'),
+      buildSrt(stored),
+      JSON.stringify(stored),
+      stored.meta.duration,
+      Date.now(),
+      assetJobId,
+    ),
   );
 }
 

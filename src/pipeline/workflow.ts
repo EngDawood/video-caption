@@ -207,7 +207,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
             keys.segments,
             JSON.stringify({ meta, segments: translated, source: transcript } satisfies StoredCues),
           );
-          await recordScript(env, assetJobId, { meta, segments: translated, source: transcript });
+          await recordScript(env, assetJobId, { meta, segments: translated, source: transcript }, settings);
         });
 
         cues = translated;
