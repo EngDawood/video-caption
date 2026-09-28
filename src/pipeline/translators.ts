@@ -1,5 +1,6 @@
 import type { TRANSLATORS, TranslatorId } from '../captions/settings';
 import type { Env } from '../types';
+import { ARABIC_RULES } from './arabic';
 
 /**
  * The translator transports — one per `kind` in `TRANSLATORS` — and the
@@ -19,11 +20,20 @@ const LANGUAGE_NAMES: Record<string, string> = {
   tr: 'Turkish',
   ru: 'Russian',
   pt: 'Portuguese',
+  it: 'Italian',
+  de: 'German',
 };
 
 export const langName = (code: string): string => LANGUAGE_NAMES[code] ?? code;
 
-export type TranslatorModel = (typeof TRANSLATORS)[TranslatorId];
+/** The source language for a prompt; `auto` means the model reads it off the text. */
+export const sourceName = (code: string): string => (code === 'auto' ? 'the original language' : langName(code));
+
+/** A `TRANSLATORS` entry, or anything shaped like one. */
+export interface TranslatorModel {
+  model: string;
+  kind: (typeof TRANSLATORS)[TranslatorId]['kind'];
+}
 
 export interface TranslationContext {
   before: string;
@@ -37,10 +47,32 @@ export function stripWrapper(text: string): string {
   return (quoted ? quoted[2] : unlabelled).trim();
 }
 
+/**
+ * How to translate, as opposed to what to reply with — for every target.
+ *
+ * The prompt used to say only "keep the tone and register", and the misses it
+ * let through were all of one kind: fluent, in the right script, and wrong.
+ * "I've got it" became لديه (he has), "You a**hole" became يا مجنون (you
+ * madman), "dog" as a form of address became كلب. Each is a word translated
+ * where the meaning should have been.
+ */
+const MEANING_RULES = [
+  'Translate what the speaker means, not word for word, the way a professional subtitler would.',
+  'An idiom becomes the equivalent idiom or its plain meaning, never a literal rendering, unless the ' +
+    'context shows the literal image is the joke.',
+  'A short reply ("Fine.", "Got it.", "All right.") means what it means in the exchange: read the ' +
+    'context — "I\'ve got it" is "I understand" or "I\'m on it", not possession.',
+  'Slang forms of address ("dog", "man", "bro", "son", "old boy") are forms of address, not nouns.',
+  'Keep the tone, register and formality: a joke stays funny, an insult stays an insult, a lecture ' +
+    'stays precise.',
+  'The source is speech recognition output: if a word is obviously misheard, translate what was ' +
+    'plainly meant.',
+].join(' ');
+
 /** Chat models: told what to do, and told firmly not to add anything around it. */
 export async function promptTranslate(
   env: Env,
-  model: string,
+  model: TranslatorModel,
   text: string,
   source: string,
   target: string,
@@ -52,12 +84,14 @@ export async function promptTranslate(
     context.after ? `CONTEXT AFTER: ${context.after}` : null,
   ].filter(Boolean);
 
-  const res: any = await env.AI.run(model as any, {
-    messages: [
+  const answer = await chatComplete(
+    env,
+    model,
+    [
       {
         role: 'system',
         content:
-          `You translate video subtitles from ${langName(source)} to ${langName(target)}. ` +
+          `You translate video subtitles from ${sourceName(source)} to ${langName(target)}. ` +
           'The message may carry CONTEXT BEFORE and CONTEXT AFTER around the TEXT. ' +
           'Those are the speech either side of it, given only so that a sentence ' +
           'running across the boundary, or a pronoun whose subject sits outside it, ' +
@@ -66,17 +100,69 @@ export async function promptTranslate(
           `Reply with ONLY the ${langName(target)} translation of TEXT — no quotes, ` +
           'no labels, no notes, nothing before or after it. ' +
           `Every word must be ${langName(target)}: never leave a word untranslated ` +
-          'and never use a third language. Names and numbers keep their source ' +
-          'spelling. Keep the tone and register the speaker used.',
+          'and never use a third language. ' +
+          (target === 'ar' ? '' : 'Names and numbers keep their source spelling. ') +
+          MEANING_RULES +
+          (target === 'ar' ? ` ${ARABIC_RULES}` : ''),
       },
       { role: 'user', content: parts.join('\n\n') },
     ],
-    temperature: 0.2,
-  } as any);
-  return stripWrapper(String(res?.response ?? '').trim());
+    0.2,
+  );
+  return stripWrapper(answer);
 }
 
 const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
+
+/** Longest a single NVIDIA chat call may take; Kimi thinks before it answers. */
+const NVIDIA_CHAT_TIMEOUT_MS = 60_000;
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+/**
+ * One answer from a `chat` or `nvidia-chat` translator — the same messages
+ * either way, sent to Workers AI or to NVIDIA's endpoint.
+ *
+ * NVIDIA rate-limits by the minute and a translation fans six units out at
+ * once, so a 429 waits and tries again once here rather than spending one of
+ * `translateText`'s two attempts, whose fallback is untranslated source text.
+ * Reasoning models can leave their `<think>` block in the answer; it is cut.
+ */
+export async function chatComplete(
+  env: Env,
+  model: TranslatorModel,
+  messages: ChatMessage[],
+  temperature: number,
+): Promise<string> {
+  if (model.kind !== 'nvidia-chat') {
+    const res: any = await env.AI.run(model.model as any, { messages, temperature } as any);
+    return String(res?.response ?? '').trim();
+  }
+
+  const apiKey = env.NVIDIA_API_KEY;
+  if (!apiKey) throw new Error(`${model.model} is selected as translator but NVIDIA_API_KEY is not set`);
+
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(NVIDIA_ENDPOINT, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: model.model, messages, temperature, max_tokens: 4096, stream: false }),
+      signal: AbortSignal.timeout(NVIDIA_CHAT_TIMEOUT_MS),
+    });
+    if (res.status === 429 && attempt === 0) {
+      await new Promise((r) => setTimeout(r, 5_000));
+      continue;
+    }
+    if (!res.ok) throw new Error(`${model.model} failed (${res.status}): ${await res.text()}`);
+    const data: any = await res.json();
+    return String(data?.choices?.[0]?.message?.content ?? '')
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      .trim();
+  }
+}
 
 /**
  * NVIDIA Riva: an external chat-completions endpoint, not Workers AI, and its
