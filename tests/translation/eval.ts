@@ -18,7 +18,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { TRANSLATORS } from '../../src/captions/settings';
-import { groupForTranslation, translateWith } from '../../src/pipeline/translate';
+import { translateWith, translationUnits } from '../../src/pipeline/translate';
 import type { TranslatorModel } from '../../src/pipeline/translators';
 import type { Env, Segment } from '../../src/types';
 import { SAMPLES, type Check, type Sample } from './samples';
@@ -187,6 +187,24 @@ function runChecks(sample: Sample, units: Segment[], out: Segment[]): CheckResul
   });
 }
 
+// ── Style ──────────────────────────────────────────────────────────────────
+
+/**
+ * Netflix Arabic guide rules a line can be checked for mechanically. Counted,
+ * not pass/fail: a Latin word is sometimes a model the repair pass could not
+ * mend, and the count across a script is what shows a prompt change working.
+ */
+function styleIssues(text: string): string[] {
+  const issues: string[] = [];
+  const latin = text.replace(/(?:https?:\/\/|www\.)\S+|\b[\w-]+\.(?:com|net|org|io)\b/gi, '').match(/\p{Script=Latin}+/gu);
+  if (latin) issues.push(`Latin: ${latin.join(' ')}`);
+  if (/\.\.\./.test(text)) issues.push('three dots');
+  if (/[?؟]!|![?؟]/.test(text)) issues.push('?! combined');
+  if (/\s[،,.؟?!]/.test(text)) issues.push('space before punctuation');
+  if (/(?<![\d:/])\b[1-9]\b(?![\d:/])/.test(text)) issues.push('digit 1–9 not in words');
+  return issues;
+}
+
 // ── Run ────────────────────────────────────────────────────────────────────
 
 interface Run {
@@ -213,8 +231,8 @@ for (const level of ['log', 'warn', 'error'] as const) {
 
 async function runOne(env: Env, modelId: string, sample: Sample, target: string, judgeModel: string | null): Promise<Run> {
   const segments = parseSrt(readFileSync(new URL(`./samples/${sample.file}`, import.meta.url), 'utf8'));
-  // Same grouping as production, so units line up with what was translated.
-  const units = groupForTranslation(segments);
+  // Same units as production, so they line up with what was translated.
+  const units = translationUnits(segments);
   const logs: string[] = [];
   const started = Date.now();
   try {
@@ -237,7 +255,7 @@ const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.l
 function report(runs: Run[], models: string[], samples: Sample[], judgeModel: string | null): string {
   const md: string[] = [`# Translation eval\n`, `Judge: ${judgeModel ?? 'none'} · Target: Arabic · ${new Date().toISOString()}\n`];
 
-  md.push('## Summary\n', '| Model | Checks passed | Mean score | Units ≤ 2 | Retries/repairs logged | Time (s) |', '|---|---|---|---|---|---|');
+  md.push('## Summary\n', '| Model | Checks passed | Mean score | Units ≤ 2 | Style issues | Retries/repairs logged | Time (s) |', '|---|---|---|---|---|---|---|');
   for (const m of models) {
     const rs = runs.filter((r) => r.model === m);
     const checks = rs.flatMap((r) => r.checks);
@@ -246,6 +264,7 @@ function report(runs: Run[], models: string[], samples: Sample[], judgeModel: st
     md.push(
       `| ${m}${errors ? ` (${errors} failed)` : ''} | ${checks.filter((c) => c.pass).length}/${checks.length} | ` +
         `${mean(scores).toFixed(2)} | ${scores.filter((s) => s <= 2).length} | ` +
+        `${rs.flatMap((r) => r.out.flatMap((o) => styleIssues(o.text))).length} | ` +
         `${rs.reduce((n, r) => n + r.logs.length, 0)} | ${rs.reduce((n, r) => n + r.seconds, 0).toFixed(0)} |`,
     );
   }
@@ -264,7 +283,11 @@ function report(runs: Run[], models: string[], samples: Sample[], judgeModel: st
       md.push('| Model | Translation | Score | Note |', '|---|---|---|---|');
       for (const r of rs) {
         const v = r.verdicts[i];
-        md.push(`| ${r.model} | ${esc(r.out[i]?.text ?? '')} | ${v?.score || ''} | ${esc(v ? `${v.issue === 'none' ? '' : v.issue + ': '}${v.note}` : '')} |`);
+        const style = styleIssues(r.out[i]?.text ?? '');
+        const note = [v ? `${v.issue === 'none' ? '' : v.issue + ': '}${v.note}` : '', style.length ? `style: ${style.join(', ')}` : '']
+          .filter(Boolean)
+          .join(' · ');
+        md.push(`| ${r.model} | ${esc(r.out[i]?.text ?? '')} | ${v?.score || ''} | ${esc(note)} |`);
       }
       md.push('');
     });

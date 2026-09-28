@@ -1,5 +1,6 @@
 import type { TRANSLATORS, TranslatorId } from '../captions/settings';
 import type { Env } from '../types';
+import { ARABIC_RULES } from './arabic';
 
 /**
  * The translator transports — one per `kind` in `TRANSLATORS` — and the
@@ -19,9 +20,14 @@ const LANGUAGE_NAMES: Record<string, string> = {
   tr: 'Turkish',
   ru: 'Russian',
   pt: 'Portuguese',
+  it: 'Italian',
+  de: 'German',
 };
 
 export const langName = (code: string): string => LANGUAGE_NAMES[code] ?? code;
+
+/** The source language for a prompt; `auto` means the model reads it off the text. */
+export const sourceName = (code: string): string => (code === 'auto' ? 'the original language' : langName(code));
 
 /** A `TRANSLATORS` entry, or anything shaped like one. */
 export interface TranslatorModel {
@@ -40,6 +46,28 @@ export function stripWrapper(text: string): string {
   const quoted = /^(["'«“])([\s\S]*)(["'»”])$/.exec(unlabelled);
   return (quoted ? quoted[2] : unlabelled).trim();
 }
+
+/**
+ * How to translate, as opposed to what to reply with — for every target.
+ *
+ * The prompt used to say only "keep the tone and register", and the misses it
+ * let through were all of one kind: fluent, in the right script, and wrong.
+ * "I've got it" became لديه (he has), "You a**hole" became يا مجنون (you
+ * madman), "dog" as a form of address became كلب. Each is a word translated
+ * where the meaning should have been.
+ */
+const MEANING_RULES = [
+  'Translate what the speaker means, not word for word, the way a professional subtitler would.',
+  'An idiom becomes the equivalent idiom or its plain meaning, never a literal rendering, unless the ' +
+    'context shows the literal image is the joke.',
+  'A short reply ("Fine.", "Got it.", "All right.") means what it means in the exchange: read the ' +
+    'context — "I\'ve got it" is "I understand" or "I\'m on it", not possession.',
+  'Slang forms of address ("dog", "man", "bro", "son", "old boy") are forms of address, not nouns.',
+  'Keep the tone, register and formality: a joke stays funny, an insult stays an insult, a lecture ' +
+    'stays precise.',
+  'The source is speech recognition output: if a word is obviously misheard, translate what was ' +
+    'plainly meant.',
+].join(' ');
 
 /** Chat models: told what to do, and told firmly not to add anything around it. */
 export async function promptTranslate(
@@ -63,7 +91,7 @@ export async function promptTranslate(
       {
         role: 'system',
         content:
-          `You translate video subtitles from ${langName(source)} to ${langName(target)}. ` +
+          `You translate video subtitles from ${sourceName(source)} to ${langName(target)}. ` +
           'The message may carry CONTEXT BEFORE and CONTEXT AFTER around the TEXT. ' +
           'Those are the speech either side of it, given only so that a sentence ' +
           'running across the boundary, or a pronoun whose subject sits outside it, ' +
@@ -72,8 +100,10 @@ export async function promptTranslate(
           `Reply with ONLY the ${langName(target)} translation of TEXT — no quotes, ` +
           'no labels, no notes, nothing before or after it. ' +
           `Every word must be ${langName(target)}: never leave a word untranslated ` +
-          'and never use a third language. Names and numbers keep their source ' +
-          'spelling. Keep the tone and register the speaker used.',
+          'and never use a third language. ' +
+          (target === 'ar' ? '' : 'Names and numbers keep their source spelling. ') +
+          MEANING_RULES +
+          (target === 'ar' ? ` ${ARABIC_RULES}` : ''),
       },
       { role: 'user', content: parts.join('\n\n') },
     ],

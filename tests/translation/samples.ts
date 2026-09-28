@@ -38,7 +38,7 @@ export const SAMPLES: Sample[] = [
         must: /مضاعفات/,
         why: 'surgical complications are مضاعفات, not تعقيدات',
       },
-      { source: 'Bob Osteen', must: /أوستين|أوستن|Osteen/, why: 'the name must survive' },
+      { source: 'Bob Osteen', must: /أوستين|أوستن|أوستِن/, why: 'names are transliterated into Arabic letters' },
     ],
   },
   {
@@ -47,7 +47,7 @@ export const SAMPLES: Sample[] = [
     source: 'en',
     checks: [
       { source: 'occupied West Bank', must: /الضفة/, why: 'West Bank is الضفة الغربية' },
-      { source: 'organization, ICE', must: /ICE|الهجرة/, why: 'ICE is the US immigration agency, not ice' },
+      { source: 'organization, ICE', must: /الهجرة|آيس|أيس/, why: 'ICE is the US immigration agency, in Arabic letters' },
       { source: 'organization, ICE', mustNot: /جليد|ثلج/, why: 'ICE translated as frozen water' },
     ],
   },
@@ -101,7 +101,7 @@ export const SAMPLES: Sample[] = [
     source: 'it',
     notes: 'Sung Italian, badly transcribed ("fototum" is "factotum", "malviere" is "barbiere"). Non-English source.',
     checks: [
-      { source: 'Figaro, Figaro, Figaro', must: /فيغارو|فيجارو|Figaro/, why: 'the name must survive' },
+      { source: 'Figaro, Figaro, Figaro', must: /فيغارو|فيجارو/, why: 'names are transliterated into Arabic letters' },
     ],
   },
   {

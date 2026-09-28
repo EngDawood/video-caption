@@ -1,6 +1,7 @@
 import { TRANSLATORS, type TranslatorId } from '../captions/settings';
 import { sanitize } from '../captions/text';
 import type { Env, Segment } from '../types';
+import { tidyArabic } from './arabic';
 import { SENTENCE_END } from './fit';
 import {
   chatComplete,
@@ -8,6 +9,7 @@ import {
   mtTranslate,
   nvidiaTranslate,
   promptTranslate,
+  sourceName,
   stripWrapper,
   type TranslationContext,
   type TranslatorModel,
@@ -126,6 +128,44 @@ export function groupForTranslation(segments: Segment[]): Segment[] {
   return units;
 }
 
+/** A unit's words, ignoring case and punctuation, for spotting a repeat. */
+const spokenWords = (text: string): string =>
+  text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+/**
+ * Merge a phrase said again straight after itself into one unit.
+ *
+ * "All right. / All right." and "I've got it. / I've got it." are two cues on
+ * the audio but one thing said, and the Netflix Arabic guide (§17) has the
+ * phrase translated once and timed across both. Translating each copy alone
+ * was also the worst case for meaning: a two-word line with nothing in it to
+ * say what "it" is. Only an exact repeat after a short gap merges — "You can't
+ * deny" after "You cannot deny" is someone saying it differently, not again.
+ */
+export function collapseRepeats(units: Segment[]): Segment[] {
+  const out: Segment[] = [];
+  for (const unit of units) {
+    const previous = out[out.length - 1];
+    if (
+      previous &&
+      spokenWords(previous.text) === spokenWords(unit.text) &&
+      unit.start - previous.end <= TRANSLATION_GAP_SECONDS
+    ) {
+      out[out.length - 1] = { ...previous, end: unit.end };
+      continue;
+    }
+    out.push(unit);
+  }
+  return out;
+}
+
+/**
+ * The units a translation works in: whole sentences, with back-to-back
+ * repeats merged. Exported so the eval lines its units up with the output.
+ */
+export const translationUnits = (segments: Segment[]): Segment[] =>
+  collapseRepeats(groupForTranslation(segments));
+
 /** The tail of the previous unit and the head of the next, as context. */
 const contextTail = (text?: string): string =>
   text ? text.slice(Math.max(0, text.length - TRANSLATION_CONTEXT_CHARS)) : '';
@@ -166,9 +206,12 @@ export async function translateWith(
   targetLang: string,
   model: TranslatorModel,
 ): Promise<Segment[]> {
-  const source = sourceLang && sourceLang !== 'auto' ? sourceLang : 'en';
+  // `auto` stays `auto` for a chat model, which is told to read the language
+  // off the text: STT's detected language is not kept, and assuming English
+  // sent every non-English video to the model as "from English".
+  const source = sourceLang || 'auto';
   const target = targetLang || 'ar';
-  const units = groupForTranslation(segments);
+  const units = translationUnits(segments);
 
   // Translated a whole sentence at a time, not a caption-sized fragment, and
   // with its neighbours in view. Sentence-aware grouping keeps most sentences
@@ -193,14 +236,16 @@ export async function translateWith(
     // cue short enough to skip `resegment` never has its words rejoined. The
     // same call drops the bidi marks and presentation forms a model leaks into
     // Arabic — see `sanitize`.
-    return { ...unit, text: sanitize(text).replace(/\s+/g, ' ').trim() };
+    const clean = sanitize(text).replace(/\s+/g, ' ').trim();
+    return { ...unit, text: target === 'ar' ? tidyArabic(clean) : clean };
   });
 }
 
 /**
  * The Unicode script each target language is written in; a target not listed
  * goes unchecked. Latin is allowed on top of it everywhere, because names and
- * numbers keep their source spelling.
+ * numbers keep their source spelling in most targets — Arabic transliterates
+ * them, but a stray Latin name there is mended by `repairLeaks`, not rejected.
  */
 const TARGET_SCRIPT: Record<string, string> = {
   ar: 'Arabic',
@@ -296,6 +341,10 @@ const NOT_ARABIC = /[پچژگکیٹڈڑںہے]/;
  * (iPhone, macOS) and anything written against a digit (a unit, a model
  * number) are left alone. Accented Latin counts as Latin, so a Spanish
  * `también` is named whole rather than cut to `tambi` at the accent.
+ *
+ * Arabic is the exception to all of that: the Netflix Arabic guide writes
+ * names, brands and acronyms in Arabic letters, so there every Latin word is
+ * one to mend.
  */
 export function leakedWords(text: string, sourceText: string, target: string): string[] {
   const expected = TARGET_SCRIPT[target];
@@ -313,6 +362,12 @@ export function leakedWords(text: string, sourceText: string, target: string): s
       continue;
     }
     if (expected === 'Latin' || !/^[\p{Script=Latin}\p{M}'’-]+$/u.test(word)) continue;
+    // Arabic subtitles carry no Latin letters at all: names, brands and
+    // acronyms are transliterated (see `ARABIC_RULES`).
+    if (target === 'ar') {
+      leaks.add(word);
+      continue;
+    }
     // An acronym, or a brand cased like iPhone or macOS.
     if (word === word.toUpperCase() || /\p{Lu}/u.test(word.slice(1))) continue;
     if (/^\p{Ll}/u.test(word) || lowercaseInSource.has(word.toLowerCase())) leaks.add(word);
@@ -340,8 +395,8 @@ async function translateText(
         model.kind === 'chat' || model.kind === 'nvidia-chat'
           ? await promptTranslate(env, model, text, source, target, context)
           : model.kind === 'nvidia'
-            ? await nvidiaTranslate(env, model.model, text, source, target)
-            : await mtTranslate(env, model.model, text, source, target);
+            ? await nvidiaTranslate(env, model.model, text, source === 'auto' ? 'en' : source, target)
+            : await mtTranslate(env, model.model, text, source === 'auto' ? 'en' : source, target);
       if (out) {
         if (isPlausible(out, target)) return repairLeaks(env, text, out, source, target, model);
         best ||= out;
@@ -395,12 +450,14 @@ async function repairLeaks(
         {
           role: 'system',
           content:
-            `You fix subtitle translations from ${langName(source)} to ${langName(target)}. ` +
+            `You fix subtitle translations from ${sourceName(source)} to ${langName(target)}. ` +
             `The words listed under WRONG WORDS in the TRANSLATION are not ${langName(target)}: ` +
-            `some were left in ${langName(source)}, some slipped in from another language. ` +
+            `some were left in ${sourceName(source)}, some slipped in from another language. ` +
             `Replace each of them with the right ${langName(target)} word, reading the ORIGINAL ` +
-            'to see what belongs there, and change nothing else. A word that is really a ' +
-            'name or a brand keeps its spelling. ' +
+            'to see what belongs there, and change nothing else. ' +
+            (target === 'ar'
+              ? 'A name, brand or acronym is transliterated into Arabic letters. '
+              : 'A word that is really a name or a brand keeps its spelling. ') +
             `Reply with ONLY the corrected ${langName(target)} line — no quotes, no labels, ` +
             'no notes, nothing before or after it.',
         },
