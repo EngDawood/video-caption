@@ -57,6 +57,25 @@ export async function recordScript(env: Env, assetJobId: string, stored: StoredC
   );
 }
 
+/** Sync hand-corrected cues (✍️ Fix text). Languages are untouched: an edit never changes them. */
+export async function recordCorrection(env: Env, assetJobId: string, stored: StoredCues): Promise<void> {
+  await run(
+    env,
+    'recordCorrection',
+    env.DB?.prepare(
+      `UPDATE requests SET source_srt = ?, target_srt = ?, script_srt = ?, segments = ?, updated_at = ?
+       WHERE job_id = ?`,
+    ).bind(
+      buildSingleSrt(stored, 'source'),
+      buildSingleSrt(stored, 'target'),
+      buildSrt(stored),
+      JSON.stringify(stored),
+      Date.now(),
+      assetJobId,
+    ),
+  );
+}
+
 export async function recordStatus(
   env: Env,
   assetJobId: string,

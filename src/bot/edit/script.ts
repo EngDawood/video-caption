@@ -1,5 +1,6 @@
 import { sanitize } from '../../captions/text';
 import { loadCues, saveCues } from '../../media/assets';
+import { recordCorrection } from '../../db/requests';
 import { escapeHtml, telegram, type InlineKeyboard } from '../telegram';
 import type { Env, Segment, StoredCues } from '../../types';
 import { SOURCE_MARK, TARGET_MARK, applyCorrections, clock, parseCorrections, sourceRun } from './corrections';
@@ -205,6 +206,7 @@ export async function handleTextCorrection(
   const { patched, doomed, missed, transcriptChanged } = applied;
   const source = stored.source ?? [];
   await saveCues(env, session.assetJobId, stored);
+  await recordCorrection(env, session.assetJobId, stored);
 
   // Correcting what was *said* only reaches the video through the translator,
   // so that case is offered its own button rather than being silently burned
