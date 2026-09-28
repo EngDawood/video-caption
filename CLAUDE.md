@@ -12,7 +12,7 @@ npm run deploy         # wrangler deploy (needs Docker for the container image)
 npm run types          # regenerate worker-configuration.d.ts from wrangler.jsonc
 npm run set-webhook    # point Telegram at the deployed worker; also publishes the ☰ menu
 npm run usage          # container usage + projected cost
-npm run r2-lifecycle   # one-time: expire jobs/ objects after 2 days
+npm run r2-lifecycle   # one-time: expire jobs/ objects after 7 days
 ```
 
 Endpoints (all secret-gated with `TELEGRAM_WEBHOOK_SECRET`):
