@@ -54,13 +54,12 @@
 		}
 	],
 	// Request log: one row per job, with its source, script (.srt) and status.
-	// Create with: npx wrangler d1 create video-caption, paste the id below,
-	// then npm run db:migrate.
+	// Created; schema applied from migrations/0001_requests.sql.
 	"d1_databases": [
 		{
 			"binding": "DB",
 			"database_name": "video-caption",
-			"database_id": "REPLACE_WITH_ID",
+			"database_id": "179987a9-ce44-41b3-ac1c-745e04996521",
 			"migrations_dir": "migrations"
 		}
 	],

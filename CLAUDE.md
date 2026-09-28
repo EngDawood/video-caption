@@ -302,6 +302,6 @@ the session; a repository is not the place for them. `Co-Authored-By:` is fine.
 (`url` keeps the link, `upload` keeps only the Telegram file id, never the bytes), settings, status,
 and the script as `source_srt` (what was said), `target_srt` (the translation), `script_srt` (both, as the bot sends it) and `segments` (JSON), with `source_lang` / `target_lang`. Written by `src/db/requests.ts`, best-effort:
 a D1 failure is logged and never fails a job. Rows are kept indefinitely; R2 files and the ✏️/📤
-KV records live 7 days (`r2-lifecycle`, `EDIT_TTL_SECONDS`, `SIGNED_LINK_SECONDS`). Setup:
+KV records live 7 days (`r2-lifecycle`, `EDIT_TTL_SECONDS`, `SIGNED_LINK_SECONDS`). Setup (done):
 `npx wrangler d1 create video-caption`, put the id in `wrangler.jsonc`, `npm run db:migrate`.
 Unverified against a live D1 from this machine; only typecheck ran.
