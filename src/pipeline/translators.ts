@@ -23,7 +23,11 @@ const LANGUAGE_NAMES: Record<string, string> = {
 
 export const langName = (code: string): string => LANGUAGE_NAMES[code] ?? code;
 
-export type TranslatorModel = (typeof TRANSLATORS)[TranslatorId];
+/** A `TRANSLATORS` entry, or anything shaped like one. */
+export interface TranslatorModel {
+  model: string;
+  kind: (typeof TRANSLATORS)[TranslatorId]['kind'];
+}
 
 export interface TranslationContext {
   before: string;

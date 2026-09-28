@@ -9,7 +9,9 @@
     "types": "wrangler types",
     "r2-lifecycle": "wrangler r2 bucket lifecycle add video-caption-media expire-jobs jobs/ --expire-days 2",
     "set-webhook": "node --env-file-if-exists=.dev.vars scripts/set-webhook.mjs",
-    "usage": "node --env-file-if-exists=.dev.vars scripts/usage.mjs"
+    "usage": "node --env-file-if-exists=.dev.vars scripts/usage.mjs",
+    "test": "vitest run",
+    "eval:translate": "node --env-file-if-exists=.dev.vars --import tsx tests/translation/eval.ts"
   },
   "dependencies": {
     "@cloudflare/containers": "^0.3.7",
@@ -20,7 +22,9 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260901.1",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
+    "vitest": "^5.0.2",
     "wrangler": "^4.128.0"
   }
 }

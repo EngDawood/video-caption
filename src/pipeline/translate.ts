@@ -75,7 +75,7 @@ const unitLength = (segments: Segment[]): number =>
  * carries the remainder forward, and cuts where it stands only when the buffer
  * holds no sentence boundary at all.
  */
-function groupForTranslation(segments: Segment[]): Segment[] {
+export function groupForTranslation(segments: Segment[]): Segment[] {
   const units: Segment[] = [];
   let buffer: Segment[] = [];
 
@@ -150,9 +150,23 @@ export async function translateSegments(
   targetLang: string,
   translator: TranslatorId,
 ): Promise<Segment[]> {
+  return translateWith(env, segments, sourceLang, targetLang, TRANSLATORS[translator] ?? TRANSLATORS.llama70b);
+}
+
+/**
+ * `translateSegments` with the model handed in rather than looked up, so the
+ * translation eval (`tests/translation/eval.ts`) can run the production path
+ * over candidates that are not on the 🧠 Translator menu.
+ */
+export async function translateWith(
+  env: Env,
+  segments: Segment[],
+  sourceLang: string,
+  targetLang: string,
+  model: TranslatorModel,
+): Promise<Segment[]> {
   const source = sourceLang && sourceLang !== 'auto' ? sourceLang : 'en';
   const target = targetLang || 'ar';
-  const model = TRANSLATORS[translator] ?? TRANSLATORS.llama70b;
   const units = groupForTranslation(segments);
 
   // Translated a whole sentence at a time, not a caption-sized fragment, and
@@ -282,7 +296,7 @@ const NOT_ARABIC = /[پچژگکیٹڈڑںہے]/;
  * number) are left alone. Accented Latin counts as Latin, so a Spanish
  * `también` is named whole rather than cut to `tambi` at the accent.
  */
-function leakedWords(text: string, sourceText: string, target: string): string[] {
+export function leakedWords(text: string, sourceText: string, target: string): string[] {
   const expected = TARGET_SCRIPT[target];
   if (!expected) return [];
   const foreign = foreignLetter(expected);
