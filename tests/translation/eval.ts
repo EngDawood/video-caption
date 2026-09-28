@@ -4,6 +4,7 @@
  * apply) over the sample scripts with each candidate model, then scores it.
  *
  *   npm run eval:translate -- --models=llama70b,kimi --samples=script-6,script-8 --judge=kimi
+ *   npm run eval:translate -- --models=llama70b --genre=auto   # without the 🎭 video types
  *
  * Three kinds of evidence, strongest first:
  *  - checks: the known regressions in `samples.ts`, pass or fail;
@@ -229,14 +230,21 @@ for (const level of ['log', 'warn', 'error'] as const) {
   };
 }
 
-async function runOne(env: Env, modelId: string, sample: Sample, target: string, judgeModel: string | null): Promise<Run> {
+async function runOne(
+  env: Env,
+  modelId: string,
+  sample: Sample,
+  target: string,
+  judgeModel: string | null,
+  genres: 'sample' | 'auto',
+): Promise<Run> {
   const segments = parseSrt(readFileSync(new URL(`./samples/${sample.file}`, import.meta.url), 'utf8'));
   // Same units as production, so they line up with what was translated.
   const units = translationUnits(segments);
   const logs: string[] = [];
   const started = Date.now();
   try {
-    const out = await logScope.run(logs, () => translateWith(env, segments, sample.source, target, CANDIDATES[modelId]));
+    const out = await logScope.run(logs, () => translateWith(env, segments, sample.source, target, CANDIDATES[modelId], genres === 'auto' ? 'auto' : sample.genre));
     const seconds = (Date.now() - started) / 1000;
     const verdicts = judgeModel ? await judge(judgeModel, sample, units, out) : [];
     return { model: modelId, sample: sample.file, units, out, verdicts, checks: runChecks(sample, units, out), seconds, logs };
@@ -273,7 +281,7 @@ function report(runs: Run[], models: string[], samples: Sample[], judgeModel: st
   for (const r of runs) for (const c of r.checks.filter((c) => !c.pass)) md.push(`- **${r.model}** · ${r.sample} · "${c.source}": ${c.why}. Got: ${c.got}`);
 
   for (const sample of samples) {
-    md.push(`\n## ${sample.file}: ${sample.title}\n`);
+    md.push(`\n## ${sample.file}: ${sample.title} (${sample.genre})\n`);
     if (sample.notes) md.push(`> ${sample.notes}\n`);
     const rs = models.map((m) => runs.find((r) => r.model === m && r.sample === sample.file)!);
     for (const r of rs) if (r.error) md.push(`**${r.model} failed:** ${r.error}\n`);
@@ -311,6 +319,8 @@ async function main() {
         : (judgeCandidate?.model ?? judgeArg);
   if (judgeModel && !judgeModel.includes(':')) throw new Error('the judge must be a provider model, e.g. kimi or mistral:mistral-medium-latest');
   const target = arg('target') ?? 'ar';
+  // Each sample's own 🎭 type by default; --genre=auto runs them all without one.
+  const genres = arg('genre') === 'auto' ? 'auto' : 'sample';
 
   const env = fakeEnv();
   const runs: Run[] = [];
@@ -318,7 +328,7 @@ async function main() {
   await Promise.all(
     models.map(async (m) => {
       for (const sample of samples) {
-        const run = await runOne(env, m, sample, target, judgeModel);
+        const run = await runOne(env, m, sample, target, judgeModel, genres);
         runs.push(run);
         const passed = run.checks.filter((c) => c.pass).length;
         console.log(`${m.padEnd(9)} ${sample.file}  ${run.error ? 'FAILED ' + run.error.slice(0, 120) : `checks ${passed}/${run.checks.length}, ${run.seconds.toFixed(0)}s`}`);

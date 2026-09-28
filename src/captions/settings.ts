@@ -286,6 +286,27 @@ export const PREVIEW = {
 
 export type PreviewId = keyof typeof PREVIEW;
 
+/**
+ * What kind of video it is, set by the user rather than guessed: the one
+ * thing about a video its uploader knows better than any model. Each type
+ * adds its own paragraph to the chat translator's prompt (`GENRE_RULES` in
+ * `translators.ts`); `auto` adds none. `m2m100` and Riva take no prompt, so
+ * for them it changes nothing.
+ *
+ * Append only — `encodeSettings` puts this order on the buttons.
+ */
+export const GENRES = {
+  auto: { label: 'Auto — no hint' },
+  comedy: { label: '😂 Comedy' },
+  lecture: { label: '🎓 Lecture / educational' },
+  speech: { label: '🎤 Speech / news' },
+  interview: { label: '🎙 Interview / podcast' },
+  drama: { label: '🎬 Drama / film' },
+  song: { label: '🎵 Song' },
+} as const;
+
+export type GenreId = keyof typeof GENRES;
+
 export interface CaptionSettings {
   preset: CaptionPreset;
   size: CaptionSize;
@@ -299,6 +320,8 @@ export interface CaptionSettings {
   targetLang: TargetLangId;
   stt: SttProviderId;
   translator: TranslatorId;
+  /** What kind of video it is, for the translation prompt. */
+  genre: GenreId;
   /** Stop and show the script before burning. */
   review: ReviewId;
   /** Stop and show these settings before the video is started at all. */
@@ -433,6 +456,11 @@ export const MENUS: Record<SettingsField, Menu> = {
     icon: '🧠',
     options: Object.entries(TRANSLATORS).map(([value, t]) => ({ value, label: t.label })),
   },
+  genre: {
+    label: 'Video type',
+    icon: '🎭',
+    options: Object.entries(GENRES).map(([value, g]) => ({ value, label: g.label })),
+  },
   review: {
     label: 'Check script',
     icon: '📝',
@@ -509,6 +537,7 @@ const CODE_FIELDS: SettingsField[] = [
   'confirm',
   'preview',
   'writer',
+  'genre',
 ];
 
 /**
@@ -574,6 +603,9 @@ export function defaults(env: Env): CaptionSettings {
     targetLang,
     stt,
     translator,
+    // No hint by default: the prompt's general rules already cover most
+    // videos, and only the uploader can say which kind this one is.
+    genre: 'auto',
     // Off by default: a video that comes back without needing a tap is the
     // point of the bot, and the ✏️ card can still fix anything afterwards.
     review: 'off',

@@ -19,7 +19,14 @@ export function pickMode(was: CaptionSettings | undefined, draft: CaptionSetting
   // re-burn, which is what that card promised anyway.
   if (!was) return 'restyle';
   if (was.stt !== draft.stt || was.sourceLang !== draft.sourceLang) return 'retranscribe';
-  if (was.translator !== draft.translator || was.targetLang !== draft.targetLang) return 'retranslate';
+  if (
+    was.translator !== draft.translator ||
+    was.targetLang !== draft.targetLang ||
+    // A settings.json written before 🎭 Video type existed has no genre: it was auto.
+    (was.genre ?? 'auto') !== draft.genre
+  ) {
+    return 'retranslate';
+  }
   return 'restyle';
 }
 

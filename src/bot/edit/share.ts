@@ -1,4 +1,4 @@
-import { loadCues, loadPostCaption, loadPostOrigin } from '../../media/assets';
+import { loadCues, loadJobSettings, loadPostCaption, loadPostOrigin } from '../../media/assets';
 import { loadSettings } from '../../captions/settings';
 import { postSourceOf, postTextLanguages, writeHashtags, writePostText } from '../../pipeline/describe';
 import { publishTargets, targetLabel, type Target } from '../../social/composio';
@@ -75,12 +75,14 @@ export function canShare(env: Env, chatId: number): boolean {
  * after it, so they add no wait.
  */
 async function writeCaption(env: Env, chatId: number, assetJobId: string): Promise<string> {
-  const [stored, posted, origin] = await Promise.all([
+  const [stored, posted, origin, ran] = await Promise.all([
     loadCues(env, assetJobId),
     loadPostCaption(env, assetJobId),
     loadPostOrigin(env, assetJobId),
+    loadJobSettings(env, assetJobId),
   ]);
-  const source = stored && postSourceOf(stored.source?.length ? stored.source : stored.segments, posted, origin);
+  const source =
+    stored && postSourceOf(stored.source?.length ? stored.source : stored.segments, posted, origin, ran?.genre);
   if (!source) return '';
 
   const { writer } = await loadSettings(env, chatId);

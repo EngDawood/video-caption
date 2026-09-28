@@ -1,5 +1,5 @@
 import { loadSettings } from '../../captions/settings';
-import { loadCues, loadPostCaption, loadPostOrigin } from '../../media/assets';
+import { loadCues, loadJobSettings, loadPostCaption, loadPostOrigin } from '../../media/assets';
 import { postSourceOf, postTextLanguages, writeHashtags, writePostText } from '../../pipeline/describe';
 import { escapeHtml, telegram } from '../telegram';
 import type { Env } from '../../types';
@@ -27,20 +27,25 @@ export async function sendPostText(
   session: EditSession,
 ): Promise<void> {
   const tg = telegram(env.TELEGRAM_BOT_TOKEN);
-  const [stored, caption, origin] = await Promise.all([
+  const [stored, caption, origin, ran] = await Promise.all([
     loadCues(env, session.assetJobId),
     loadPostCaption(env, session.assetJobId),
     loadPostOrigin(env, session.assetJobId),
+    loadJobSettings(env, session.assetJobId),
   ]);
   if (!stored) {
     await tg.answerCallbackQuery(callbackId, 'That video is no longer stored.');
     return;
   }
 
+  // The 🎭 type the latest run used: a re-run rewrites settings.json, the
+  // session keeps the first run's.
+  const genre = ran?.genre ?? session.settings?.genre;
+
   // What was said, in the language it was said in, and what the video was
   // posted with; the translation only stands in for a video stored before
   // transcripts were kept.
-  const source = postSourceOf(stored.source?.length ? stored.source : stored.segments, caption, origin);
+  const source = postSourceOf(stored.source?.length ? stored.source : stored.segments, caption, origin, genre);
   if (!source) {
     await tg.answerCallbackQuery(callbackId, 'There is too little speech or text in this video to describe.');
     return;

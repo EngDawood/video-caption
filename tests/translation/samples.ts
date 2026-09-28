@@ -1,3 +1,5 @@
+import type { GenreId } from '../../src/captions/settings';
+
 /**
  * The translation eval's sample scripts, with what each one tests.
  *
@@ -22,6 +24,8 @@ export interface Sample {
   file: string;
   title: string;
   source: string;
+  /** What the user would set on 🎭 Video type. */
+  genre: GenreId;
   notes?: string;
   checks: Check[];
 }
@@ -31,6 +35,7 @@ export const SAMPLES: Sample[] = [
     file: 'script-1.srt',
     title: 'TED-style talk: a surgeon on coaching',
     source: 'en',
+    genre: 'lecture',
     notes: 'Cue 14 starts mid-sentence (STT dropped "I imagined having to").',
     checks: [
       {
@@ -45,6 +50,7 @@ export const SAMPLES: Sample[] = [
     file: 'script-2.srt',
     title: 'Concert speech on Palestine',
     source: 'en',
+    genre: 'speech',
     checks: [
       { source: 'occupied West Bank', must: /الضفة/, why: 'West Bank is الضفة الغربية' },
       { source: 'organization, ICE', must: /الهجرة|آيس|أيس/, why: 'ICE is the US immigration agency, in Arabic letters' },
@@ -55,6 +61,7 @@ export const SAMPLES: Sample[] = [
     file: 'script-3.srt',
     title: 'Interview: wealth and happiness',
     source: 'en',
+    genre: 'interview',
     checks: [
       { source: 'drive me crazy', mustNot: /يقود/, why: 'idiom translated literally as driving' },
     ],
@@ -63,6 +70,7 @@ export const SAMPLES: Sample[] = [
     file: 'script-4.srt',
     title: 'Trading psychology',
     source: 'en',
+    genre: 'interview',
     notes: 'Cue 12 ("Is that our brain…") is the tail of an answer whose question was cut.',
     checks: [
       { source: 'Completely different animals', mustNot: /حيوان/, why: 'idiom: "two different things"' },
@@ -74,6 +82,7 @@ export const SAMPLES: Sample[] = [
     file: 'script-5.srt',
     title: 'Comedy sketch: two colonial explorers',
     source: 'en',
+    genre: 'comedy',
     notes:
       'British comic register with innuendo. "filleted" (cue 25) is probably STT for "fêted"; ' +
       '"entire pair" probably "entire affair"; "menagatoire" and "papois" are mangled nonsense words.',
@@ -86,6 +95,7 @@ export const SAMPLES: Sample[] = [
     file: 'script-6.srt',
     title: 'Stand-up roast',
     source: 'en',
+    genre: 'comedy',
     notes:
       'Cue 1 is probably STT for "Make fun of the robot voice". The doubled lines ("All right. / All right.") ' +
       'are real repetition, the comic hurrying through a joke he does not want to tell.',
@@ -99,6 +109,7 @@ export const SAMPLES: Sample[] = [
     file: 'script-7.srt',
     title: 'Opera: Largo al factotum (Italian)',
     source: 'it',
+    genre: 'song',
     notes: 'Sung Italian, badly transcribed ("fototum" is "factotum", "malviere" is "barbiere"). Non-English source.',
     checks: [
       { source: 'Figaro, Figaro, Figaro', must: /فيغارو|فيجارو/, why: 'names are transliterated into Arabic letters' },
@@ -108,6 +119,7 @@ export const SAMPLES: Sample[] = [
     file: 'script-8.srt',
     title: 'Comedy sketch: lightning in a bottle',
     source: 'en',
+    genre: 'comedy',
     notes:
       'The joke is that "lightning in a bottle" is meant as an idiom and taken literally, so the translation ' +
       'must keep the literal image every time it recurs. "honkers" refers back to the goose.',

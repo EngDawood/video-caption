@@ -1,4 +1,4 @@
-import { TRANSLATORS, type TranslatorId } from '../captions/settings';
+import { labelFor, TRANSLATORS, type GenreId, type TranslatorId } from '../captions/settings';
 import { sanitize } from '../captions/text';
 import type { Env, Segment } from '../types';
 import { tidyArabic } from './arabic';
@@ -184,14 +184,99 @@ export function asSpoken(segments: Segment[]): Segment[] {
     .filter((unit) => unit.text.length > 0);
 }
 
+/** Translators that take a prompt, and so can be told about context, genre and glossary. */
+const isChat = (model: TranslatorModel): boolean => model.kind === 'chat' || model.kind === 'nvidia-chat';
+
+/** How much of the transcript the glossary call reads. A long video's names are mostly introduced early. */
+const GLOSSARY_SOURCE_CHARS = 12_000;
+const GLOSSARY_MAX_ENTRIES = 25;
+
+/**
+ * Whether a glossary line is a name or a term, the only things a glossary may
+ * fix. A phrase or line of dialogue pinned to one rendering is worse than no
+ * glossary: a first run locked "You a**hole = أنت خسيس" (a weak insult) into
+ * every unit, and "Come on = هيا" pulled "Come on, I can take it" off its
+ * meaning. So beyond what the prompt asks, an entry is dropped when its source
+ * is more than four words or carries sentence punctuation, or its rendering
+ * has a note in brackets (an idiom glossed with its meaning).
+ */
+function isGlossaryEntry(term: string, rendering: string, target: string): boolean {
+  if (term.split(/\s+/).length > 4 || /[.!?,;*]/.test(term)) return false;
+  if (/[()]/.test(rendering)) return false;
+  return isPlausible(rendering, target);
+}
+
+/**
+ * This video's names and recurring terms, each with the one rendering every
+ * unit must use: the consistency table the Netflix guide calls a KNP list.
+ *
+ * Units are translated in parallel and each sees only its neighbours, so
+ * nothing else stops "Bob Osteen" coming out as بوب أوستين in one line and
+ * بوب أوستن in the next — a risk that grew once Arabic stopped keeping names
+ * in Latin letters — or a lecture's key term changing word halfway through.
+ *
+ * One call per video, over the whole transcript. An entry is kept only when
+ * its rendering is plausibly in the target language, and any failure returns
+ * no glossary rather than costing the translation.
+ */
+export async function buildGlossary(
+  env: Env,
+  model: TranslatorModel,
+  units: Segment[],
+  source: string,
+  target: string,
+  genre: GenreId,
+): Promise<string> {
+  const transcript = units.map((u) => u.text).join('\n').slice(0, GLOSSARY_SOURCE_CHARS);
+  if (!transcript.trim()) return '';
+
+  try {
+    const answer = await chatComplete(
+      env,
+      model,
+      [
+        {
+          role: 'system',
+          content:
+            `You prepare a glossary for translating a video's subtitles from ${sourceName(source)} ` +
+            `to ${langName(target)}${genre === 'auto' ? '' : ` (the video is: ${labelFor('genre', genre)})`}. ` +
+            'List only the names of people, places, organisations and brands, and the technical terms ' +
+            'of a field (medicine, law, finance, science) that recur. Never list everyday words, ' +
+            'greetings, idioms, or phrases and lines of dialogue: those depend on their context and must ' +
+            `be translated fresh each time. Give each entry the single ${langName(target)} rendering to use` +
+            (target === 'ar' ? ', with names transliterated into Arabic letters' : '') +
+            ', and nothing else on the line. ' +
+            `At most ${GLOSSARY_MAX_ENTRIES} entries, one per line, as: source = rendering. ` +
+            'Nothing else: no numbering, no notes. If there is nothing worth listing, reply NONE.',
+        },
+        { role: 'user', content: transcript },
+      ],
+      0.1,
+    );
+
+    const entries = answer
+      .split('\n')
+      .map((line) => /^\s*(?:[-*•]|\d+[.)])?\s*(.+?)\s*(?:=|→)\s*(.+?)\s*$/.exec(line))
+      .filter((m): m is RegExpExecArray => !!m && isGlossaryEntry(m[1], m[2], target))
+      .slice(0, GLOSSARY_MAX_ENTRIES)
+      .map((m) => `${m[1]} = ${sanitize(m[2])}`);
+    if (entries.length) console.log(`[ai] glossary: ${entries.join('; ')}`);
+    return entries.join('\n');
+  } catch (err) {
+    console.error('[ai] glossary failed, translating without one:', err);
+    return '';
+  }
+}
+
 export async function translateSegments(
   env: Env,
   segments: Segment[],
   sourceLang: string,
   targetLang: string,
   translator: TranslatorId,
+  genre: GenreId = 'auto',
 ): Promise<Segment[]> {
-  return translateWith(env, segments, sourceLang, targetLang, TRANSLATORS[translator] ?? TRANSLATORS.llama70b);
+  return translateWith(env, segments, sourceLang, targetLang, TRANSLATORS[translator] ?? TRANSLATORS.llama70b, genre);
 }
 
 /**
@@ -205,6 +290,7 @@ export async function translateWith(
   sourceLang: string,
   targetLang: string,
   model: TranslatorModel,
+  genre: GenreId = 'auto',
 ): Promise<Segment[]> {
   // `auto` stays `auto` for a chat model, which is told to read the language
   // off the text: STT's detected language is not kept, and assuming English
@@ -212,6 +298,7 @@ export async function translateWith(
   const source = sourceLang || 'auto';
   const target = targetLang || 'ar';
   const units = translationUnits(segments);
+  const glossary = isChat(model) ? await buildGlossary(env, model, units, source, target, genre) : '';
 
   // Translated a whole sentence at a time, not a caption-sized fragment, and
   // with its neighbours in view. Sentence-aware grouping keeps most sentences
@@ -229,6 +316,8 @@ export async function translateWith(
     const context: TranslationContext = {
       before: contextTail(units[i - 1]?.text),
       after: contextHead(units[i + 1]?.text),
+      genre,
+      glossary,
     };
     const text = await translateText(env, unit.text, source, target, model, context);
     // Whitespace-normalised the way `clean` does it for the transcript: a model
@@ -392,7 +481,7 @@ async function translateText(
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const out =
-        model.kind === 'chat' || model.kind === 'nvidia-chat'
+        isChat(model)
           ? await promptTranslate(env, model, text, source, target, context)
           : model.kind === 'nvidia'
             ? await nvidiaTranslate(env, model.model, text, source === 'auto' ? 'en' : source, target)
@@ -437,7 +526,7 @@ async function repairLeaks(
 ): Promise<string> {
   const leaks = leakedWords(translation, sourceText, target);
   if (!leaks.length) return translation;
-  if (model.kind !== 'chat' && model.kind !== 'nvidia-chat') {
+  if (!isChat(model)) {
     console.warn('[ai] translation has words not in the target language:', leaks.join(', '));
     return translation;
   }
