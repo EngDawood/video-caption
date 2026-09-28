@@ -231,6 +231,11 @@ the change, so a font change costs one encode and a translator change costs no t
   names on every translator's output. Names are therefore *not* kept in Latin for Arabic, unlike
   every other target, and `leakedWords` counts any Latin word there as one for `repairLeaks`.
   A phrase repeated back to back is one unit (`collapseRepeats`), translated once.
+- **🎭 Video type is the user's call, not a model's.** `GENRES` in `settings.ts` (append-only) adds
+  a paragraph to the translation prompt (`GENRE_RULES`) and to the 📣 post text
+  (`POST_GENRE_HINTS`); changing it re-translates. `buildGlossary` makes one call per video for
+  names and field terms only: a glossary that pinned phrases or dialogue made translations
+  *worse*, so `isGlossaryEntry` drops anything longer than four words or with punctuation.
 - **Translation quality has a test harness.** `npm test` is offline; `npm run eval:translate`
   runs the real translation path over `tests/translation/samples/` with any model and checks the
   known meaning errors in `samples.ts`. A prompt change should be judged by it, before and after.
