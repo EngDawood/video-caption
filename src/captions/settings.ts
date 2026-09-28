@@ -157,7 +157,9 @@ export type SttProviderId = keyof typeof STT_PROVIDERS;
  * `nvidia` is the one external provider — its own HTTPS endpoint, its own key
  * (`NVIDIA_API_KEY`) and a rigid prompt shape none of the Workers AI models
  * use, so it gets its own `kind` rather than being forced into `chat`. See
- * `nvidiaTranslate` in `translators.ts`.
+ * `nvidiaTranslate` in `translators.ts`. `nvidia-chat` is a general chat model
+ * on that same endpoint and key: it gets the `chat` prompt, context and leak
+ * repair, only sent over NVIDIA's API instead of Workers AI.
  *
  * Append only, like every other option list here — `encodeSettings` puts
  * this order on the buttons.
@@ -182,6 +184,21 @@ export const TRANSLATORS = {
     label: 'NVIDIA Riva 4B — Arabic-tuned',
     model: 'nvidia/riva-translate-4b-instruct-v2',
     kind: 'nvidia',
+  },
+  kimi: {
+    label: 'Kimi K3 — NVIDIA',
+    model: 'moonshotai/kimi-k3',
+    kind: 'nvidia-chat',
+  },
+  glm: {
+    label: 'GLM 5.3 — NVIDIA',
+    model: 'z-ai/glm-5.3',
+    kind: 'nvidia-chat',
+  },
+  deepseek: {
+    label: 'DeepSeek V4.1 Flash — NVIDIA',
+    model: 'deepseek-ai/deepseek-v4.1-flash',
+    kind: 'nvidia-chat',
   },
 } as const;
 

@@ -3,6 +3,7 @@ import { sanitize } from '../captions/text';
 import type { Env, Segment } from '../types';
 import { SENTENCE_END } from './fit';
 import {
+  chatComplete,
   langName,
   mtTranslate,
   nvidiaTranslate,
@@ -336,8 +337,8 @@ async function translateText(
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const out =
-        model.kind === 'chat'
-          ? await promptTranslate(env, model.model, text, source, target, context)
+        model.kind === 'chat' || model.kind === 'nvidia-chat'
+          ? await promptTranslate(env, model, text, source, target, context)
           : model.kind === 'nvidia'
             ? await nvidiaTranslate(env, model.model, text, source, target)
             : await mtTranslate(env, model.model, text, source, target);
@@ -368,7 +369,7 @@ async function translateText(
  * and the first translation stands. Never throws — a failed repair must not
  * cost the translation it was trying to improve.
  *
- * Chat translators only: `m2m100` and Riva take no instructions, so for those
+ * Chat translators only (`chat` and `nvidia-chat`): `m2m100` and Riva take no instructions, so for those
  * the leak is logged and nothing else.
  */
 async function repairLeaks(
@@ -381,14 +382,16 @@ async function repairLeaks(
 ): Promise<string> {
   const leaks = leakedWords(translation, sourceText, target);
   if (!leaks.length) return translation;
-  if (model.kind !== 'chat') {
+  if (model.kind !== 'chat' && model.kind !== 'nvidia-chat') {
     console.warn('[ai] translation has words not in the target language:', leaks.join(', '));
     return translation;
   }
 
   try {
-    const res: any = await env.AI.run(model.model as any, {
-      messages: [
+    const answer = await chatComplete(
+      env,
+      model,
+      [
         {
           role: 'system',
           content:
@@ -406,9 +409,9 @@ async function repairLeaks(
           content: `ORIGINAL: ${sourceText}\n\nTRANSLATION: ${translation}\n\nWRONG WORDS: ${leaks.join(', ')}`,
         },
       ],
-      temperature: 0.1,
-    } as any);
-    const repaired = stripWrapper(String(res?.response ?? '').trim());
+      0.1,
+    );
+    const repaired = stripWrapper(answer);
     const left = repaired ? leakedWords(repaired, sourceText, target) : leaks;
 
     if (repaired && isPlausible(repaired, target) && left.length < leaks.length) {

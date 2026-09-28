@@ -27,15 +27,16 @@ import { parseSrt } from './srt';
 // ── Candidates ─────────────────────────────────────────────────────────────
 
 /**
- * Production translators, plus chat models not on the menu yet. A `provider:`
+ * Production translators (the NVIDIA chat ones included, on their real
+ * transport), plus chat models not on the menu yet. A `provider:`
  * prefix on `model` routes it through `fakeEnv` to that provider's
  * OpenAI-compatible endpoint, with the production chat prompt unchanged.
  */
 const CANDIDATES: Record<string, TranslatorModel & { label: string }> = {
   ...TRANSLATORS,
-  kimi: { label: 'Kimi K3 (NVIDIA)', model: 'nvidia:moonshotai/kimi-k3', kind: 'chat' },
-  glm: { label: 'GLM 5.3 (NVIDIA)', model: 'nvidia:z-ai/glm-5.3', kind: 'chat' },
-  deepseek: { label: 'DeepSeek V4.1 Flash (NVIDIA)', model: 'nvidia:deepseek-ai/deepseek-v4.1-flash', kind: 'chat' },
+  // Google Translate's free web endpoint, keyless and unofficial: a baseline
+  // to beat, not a production option. Plain MT, so no context and no repair.
+  google: { label: 'Google Translate (free web endpoint)', model: 'google:gtx', kind: 'mt' },
   mistral: { label: 'Mistral Medium (Mistral)', model: 'mistral:mistral-medium-latest', kind: 'chat' },
   gptoss: { label: 'GPT-OSS 120B (Groq)', model: 'groq:openai/gpt-oss-120b', kind: 'chat' },
   qwen: { label: 'Qwen 3.8 27B (Groq)', model: 'groq:qwen/qwen3.8-27b', kind: 'chat' },
@@ -90,10 +91,30 @@ async function chat(model: string, messages: unknown, temperature: number): Prom
   return stripThinking(String(data?.choices?.[0]?.message?.content ?? ''));
 }
 
+/** Google Translate's keyless endpoint; its answer is the translated sentences in order. */
+async function google(text: string, source: string, target: string): Promise<string> {
+  const url =
+    'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t' +
+    `&sl=${encodeURIComponent(source)}&tl=${encodeURIComponent(target)}&q=${encodeURIComponent(text)}`;
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url);
+    if (res.ok) {
+      const data: any = await res.json();
+      return (data?.[0] ?? []).map((part: any[]) => part?.[0] ?? '').join('');
+    }
+    if (res.status === 429 && attempt < 3) {
+      await sleep(3000 * 2 ** attempt);
+      continue;
+    }
+    throw new Error(`google translate → ${res.status}`);
+  }
+}
+
 /** The slice of `Env` translation touches, backed by real APIs. */
 function fakeEnv(): Env {
   const AI = {
     async run(model: string, input: any) {
+      if (model === 'google:gtx') return { translated_text: await google(input.text, input.source_lang, input.target_lang) };
       if (!model.startsWith('@cf/')) return { response: await chat(model, input.messages, input.temperature ?? 0.2) };
       const data = await post(
         `https://api.cloudflare.com/client/v4/accounts/${need('CLOUDFLARE_ACCOUNT_ID')}/ai/run/${model}`,
@@ -253,12 +274,18 @@ function report(runs: Run[], models: string[], samples: Sample[], judgeModel: st
 }
 
 async function main() {
-  const models = (arg('models') ?? 'llama70b,riva,kimi,glm,mistral,gptoss').split(',');
+  const models = (arg('models') ?? 'llama70b,riva,google,kimi,glm,deepseek,mistral,gptoss').split(',');
   for (const m of models) if (!CANDIDATES[m]) throw new Error(`unknown model ${m}; one of ${Object.keys(CANDIDATES).join(', ')}`);
   const wanted = arg('samples')?.split(',');
   const samples = SAMPLES.filter((s) => !wanted || wanted.some((w) => s.file.startsWith(w)));
   const judgeArg = arg('judge') ?? 'kimi';
-  const judgeModel = judgeArg === 'none' ? null : (CANDIDATES[judgeArg]?.model ?? judgeArg);
+  const judgeCandidate = CANDIDATES[judgeArg];
+  const judgeModel =
+    judgeArg === 'none'
+      ? null
+      : judgeCandidate?.kind === 'nvidia-chat'
+        ? `nvidia:${judgeCandidate.model}`
+        : (judgeCandidate?.model ?? judgeArg);
   if (judgeModel && !judgeModel.includes(':')) throw new Error('the judge must be a provider model, e.g. kimi or mistral:mistral-medium-latest');
   const target = arg('target') ?? 'ar';
 

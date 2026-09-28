@@ -44,7 +44,7 @@ export function stripWrapper(text: string): string {
 /** Chat models: told what to do, and told firmly not to add anything around it. */
 export async function promptTranslate(
   env: Env,
-  model: string,
+  model: TranslatorModel,
   text: string,
   source: string,
   target: string,
@@ -56,8 +56,10 @@ export async function promptTranslate(
     context.after ? `CONTEXT AFTER: ${context.after}` : null,
   ].filter(Boolean);
 
-  const res: any = await env.AI.run(model as any, {
-    messages: [
+  const answer = await chatComplete(
+    env,
+    model,
+    [
       {
         role: 'system',
         content:
@@ -75,12 +77,62 @@ export async function promptTranslate(
       },
       { role: 'user', content: parts.join('\n\n') },
     ],
-    temperature: 0.2,
-  } as any);
-  return stripWrapper(String(res?.response ?? '').trim());
+    0.2,
+  );
+  return stripWrapper(answer);
 }
 
 const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
+
+/** Longest a single NVIDIA chat call may take; Kimi thinks before it answers. */
+const NVIDIA_CHAT_TIMEOUT_MS = 60_000;
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+/**
+ * One answer from a `chat` or `nvidia-chat` translator — the same messages
+ * either way, sent to Workers AI or to NVIDIA's endpoint.
+ *
+ * NVIDIA rate-limits by the minute and a translation fans six units out at
+ * once, so a 429 waits and tries again once here rather than spending one of
+ * `translateText`'s two attempts, whose fallback is untranslated source text.
+ * Reasoning models can leave their `<think>` block in the answer; it is cut.
+ */
+export async function chatComplete(
+  env: Env,
+  model: TranslatorModel,
+  messages: ChatMessage[],
+  temperature: number,
+): Promise<string> {
+  if (model.kind !== 'nvidia-chat') {
+    const res: any = await env.AI.run(model.model as any, { messages, temperature } as any);
+    return String(res?.response ?? '').trim();
+  }
+
+  const apiKey = env.NVIDIA_API_KEY;
+  if (!apiKey) throw new Error(`${model.model} is selected as translator but NVIDIA_API_KEY is not set`);
+
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(NVIDIA_ENDPOINT, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: model.model, messages, temperature, max_tokens: 4096, stream: false }),
+      signal: AbortSignal.timeout(NVIDIA_CHAT_TIMEOUT_MS),
+    });
+    if (res.status === 429 && attempt === 0) {
+      await new Promise((r) => setTimeout(r, 5_000));
+      continue;
+    }
+    if (!res.ok) throw new Error(`${model.model} failed (${res.status}): ${await res.text()}`);
+    const data: any = await res.json();
+    return String(data?.choices?.[0]?.message?.content ?? '')
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      .trim();
+  }
+}
 
 /**
  * NVIDIA Riva: an external chat-completions endpoint, not Workers AI, and its
