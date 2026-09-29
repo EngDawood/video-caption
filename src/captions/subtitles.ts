@@ -231,7 +231,7 @@ export interface AssOptions {
    * otherwise, which smears Arabic letterforms.
    */
   allowBold?: boolean;
-  /** Overrides the preset's text colour. */
+  /** Overrides the preset's text colour. `preset` leaves it as shipped. */
   color?: TextColorId;
   /** Overrides the preset's background treatment. */
   background?: BackgroundId;
@@ -258,24 +258,61 @@ function applyOverrides(base: PresetStyle, opts: AssOptions): PresetStyle {
   const style = { ...base };
   const backdrop = backdropFor(opts.color);
 
-  if (opts.color && TEXT_COLORS[opts.color]) {
-    style.primary = TEXT_COLORS[opts.color].value;
+  // 🖍 'Preset default' is the sentinel meaning no colour was chosen, so the
+  // preset's own text colour and its backdrop colours stand as shipped —
+  // Hormozi's yellow included.
+  const chosen = opts.color && opts.color !== 'preset' ? TEXT_COLORS[opts.color] : undefined;
+  if (chosen) {
+    style.primary = chosen.value;
 
     // The preset's own treatment needs flipping too: 🎞 Background 'preset'
     // keeps it verbatim, and clean's black outline under black text is as
     // unreadable as the box is.
-    if (!TEXT_COLORS[opts.color].light) {
+    if (!chosen.light) {
       style.outlineColour = style.borderStyle === 3 ? backdrop.box : backdrop.edge;
       style.backColour = backdrop.shade;
     }
   }
 
   switch (opts.background) {
+    case 'plain':
+      // The one treatment with nothing on the text at all: no box, no
+      // outline, no shadow. Readability is the footage's problem, which is
+      // exactly what picking it means.
+      style.borderStyle = 1;
+      style.outline = 'none';
+      style.shadow = 0;
+      break;
+    case 'shadow':
+      // Bare text lifted off the footage by a drop shadow alone.
+      style.borderStyle = 1;
+      style.outline = 'none';
+      style.backColour = backdrop.shade;
+      style.shadow = 0.75;
+      break;
     case 'none':
       style.borderStyle = 1;
       style.outlineColour = backdrop.edge;
-      // Without a box the text needs an outline to stay readable.
+      // The preset's outline kept — but a box preset (Hormozi, YouTube)
+      // shipped without one, and bare on the footage its text needs one.
       if (style.outline === 'none') style.outline = 'med';
+      break;
+    case 'thin':
+      style.borderStyle = 1;
+      style.outlineColour = backdrop.edge;
+      style.outline = 'thin';
+      break;
+    case 'heavy':
+      style.borderStyle = 1;
+      style.outlineColour = backdrop.edge;
+      style.outline = 'heavy';
+      break;
+    case 'outlineShadow':
+      style.borderStyle = 1;
+      style.outlineColour = backdrop.edge;
+      style.outline = 'med';
+      style.backColour = backdrop.shade;
+      style.shadow = 0.75;
       break;
     case 'box':
       style.borderStyle = 3;
@@ -288,6 +325,14 @@ function applyOverrides(base: PresetStyle, opts: AssOptions): PresetStyle {
       style.borderStyle = 3;
       style.outlineColour = backdrop.edge;
       style.shadow = 0;
+      break;
+    case 'solidShadow':
+      // The shadow the translucent box cannot take: an opaque box stacks
+      // over a 75% shadow instead of multiplying into it.
+      style.borderStyle = 3;
+      style.outlineColour = backdrop.edge;
+      style.backColour = backdrop.shade;
+      style.shadow = 0.75;
       break;
     default:
       break;

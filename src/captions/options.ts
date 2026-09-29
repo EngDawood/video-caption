@@ -34,6 +34,13 @@ export const COLOR = {
  * `light` is what the backdrop is chosen against — see `backdropFor`. Every
  * preset ships a black outline, box and shadow, which is right under the four
  * light colours and unreadable under the dark one.
+ *
+ * `preset` is a sentinel, not a colour: it is 🖍's "change nothing" answer,
+ * leaving the 🎨 Style's own text colour (Hormozi's yellow and all) and its
+ * backdrop colours exactly as shipped. `value` is never read for it — see the
+ * guard in `applyOverrides` — and `light` is only consulted for the backdrop
+ * of a 🎞 treatment, where every preset's own colours are the black set
+ * anyway. Append only: `encodeSettings` puts the index on the buttons.
  */
 export const TEXT_COLORS = {
   white: { label: 'White', value: COLOR.white, light: true },
@@ -41,6 +48,7 @@ export const TEXT_COLORS = {
   green: { label: 'Green', value: assColor(0, 255, 135), light: true },
   cyan: { label: 'Cyan', value: assColor(0, 209, 255), light: true },
   black: { label: 'Black', value: COLOR.black, light: false },
+  preset: { label: 'Preset default', value: COLOR.white, light: true },
 } as const;
 
 export type TextColorId = keyof typeof TEXT_COLORS;
@@ -51,6 +59,16 @@ export const BACKGROUNDS = {
   none: { label: 'None (outline only)' },
   box: { label: 'Translucent box' },
   solid: { label: 'Solid box' },
+  // Append only, like every other option list here — `encodeSettings` puts
+  // the index on the buttons, so each new treatment goes on the end. The
+  // keyboard reads them in a different order via `layout` in settings.ts.
+  // The first two are the non-outline looks: text straight on the footage.
+  plain: { label: 'Plain text (no outline)' },
+  shadow: { label: 'Shadow only (no outline)' },
+  thin: { label: 'Thin outline' },
+  heavy: { label: 'Heavy outline' },
+  outlineShadow: { label: 'Outline + drop shadow' },
+  solidShadow: { label: 'Solid box + drop shadow' },
 } as const;
 
 export type BackgroundId = keyof typeof BACKGROUNDS;
