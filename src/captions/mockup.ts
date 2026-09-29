@@ -12,6 +12,10 @@ import dubaiRegular from '../../public/ttf/Dubai-Regular.ttf';
 import frutigerRegular from '../../public/ttf/FrutigerLTArabic-Regular.ttf';
 import frutigerBold from '../../public/ttf/FrutigerLTArabic-Bold.ttf';
 import neosansRegular from '../../public/ttf/NeoSansArabic-Regular.ttf';
+import arimoRegular from '../../public/ttf/Arimo-Regular.ttf';
+import arimoBold from '../../public/ttf/Arimo-Bold.ttf';
+import tinosRegular from '../../public/ttf/Tinos-Regular.ttf';
+import tinosBold from '../../public/ttf/Tinos-Bold.ttf';
 import { FONTS, type CaptionSettings, type FontId } from './settings';
 import { assOptionsFor, resolveStyle, type ResolvedStyle } from './subtitles';
 import { sanitize } from './text';
@@ -49,6 +53,10 @@ const FACES: Record<FontId, Face> = {
   dubai: { regular: dubaiRegular },
   frutiger: { regular: frutigerRegular, bold: frutigerBold },
   neosans: { regular: neosansRegular },
+  // Arimo and Tinos: the metric twins behind the 'Arial' and 'Times New
+  // Roman' menu labels — see FONTS in settings.ts.
+  arial: { regular: arimoRegular, bold: arimoBold },
+  times: { regular: tinosRegular, bold: tinosBold },
 };
 
 /**

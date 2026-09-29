@@ -27,7 +27,8 @@ import type { Env } from '../types';
  * both miss the letters Urdu needs (ٹ ڈ ڑ ں ے); Thmanyah also misses Persian's
  * گ ک ی ژ ہ and the Persian digits. Noto Naskh Arabic, Almarai and Cairo carry
  * the whole Arabic block plus both supplements, so any of the three can serve
- * every RTL target on the menu.
+ * every RTL target on the menu. Arimo and Tinos at the end cover Latin, Greek
+ * and Cyrillic but no Arabic at all — see their note below.
  */
 export const FONTS = {
   aljazeera: { label: 'Al Jazeera', family: 'Al Jazeera', hasBold: true },
@@ -51,6 +52,17 @@ export const FONTS = {
   frutiger: { label: 'Frutiger Arabic', family: 'Frutiger LT Arabic', hasBold: true },
   // Commercially licensed. Only a Regular weight was supplied.
   neosans: { label: 'Neo Sans Arabic', family: 'Neo Sans Arabic', hasBold: false },
+  // The Arial and Times New Roman looks, shipped as Arimo and Tinos — the
+  // open (SIL OFL, see public/ttf/LICENSE-arimo-tinos.txt) metric-compatible
+  // twins of the Monotype originals, which cannot be redistributed. Same
+  // glyph advances, so lines wrap exactly as they would in the originals;
+  // Regular and Bold are real static weights, so bold renders. Latin, Greek
+  // and Cyrillic only — no Arabic, so an RTL caption falls back per glyph to
+  // the container's Noto. To ship licensed originals instead: replace the
+  // ttfs and point `family` at their internal name ("Arial",
+  // "Times New Roman"). Append only, like everything in this table.
+  arial: { label: 'Arial', family: 'Arimo', hasBold: true },
+  times: { label: 'Times New Roman', family: 'Tinos', hasBold: true },
 } as const;
 
 export type FontId = keyof typeof FONTS;
@@ -588,9 +600,13 @@ export function decodeSettings(code: string, base: CaptionSettings): CaptionSett
 }
 
 export function defaults(env: Env): CaptionSettings {
-  // Match the deployed font var back to a known font id where possible.
+  // Match the deployed font var back to a known font id where possible — by
+  // internal family name first, then by the menu's label, so deploying
+  // SUBTITLE_FONT="Arial" finds the entry whose file is the Arimo twin.
   const font =
-    (Object.keys(FONTS) as FontId[]).find((id) => FONTS[id].family === env.SUBTITLE_FONT) ?? 'aljazeera';
+    (Object.keys(FONTS) as FontId[]).find(
+      (id) => FONTS[id].family === env.SUBTITLE_FONT || FONTS[id].label === env.SUBTITLE_FONT,
+    ) ?? 'aljazeera';
 
   // Only snaps to a menu option when the deployed number is one of them; an
   // off-menu value would render as a button no tap could ever reproduce.

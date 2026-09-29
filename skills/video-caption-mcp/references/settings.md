@@ -14,7 +14,7 @@ so it is the authority if this file and the live schema ever disagree.
 | `targetLang` | `ar` `en` `es` `fr` `hi` `ur` `fa` `tr` `ru` `pt` | `ar` |
 | `sourceLang` | `auto` `en` `ar` `es` `fr` `hi` `ur` `fa` `tr` `ru` | `en` |
 | `preset` | `clean` `hormozi` `cinematic` `youtube` `naskh` | `clean` |
-| `font` | `aljazeera` `thmanyah` `noto` `almarai` `cairo` `dubai` `frutiger` `neosans` | `aljazeera` |
+| `font` | `aljazeera` `thmanyah` `noto` `almarai` `cairo` `dubai` `frutiger` `neosans` `arial` `times` | `aljazeera` |
 | `size` | `xsmall` `small` `medium` `large` `xlarge` | `medium` |
 | `color` | `preset` `white` `yellow` `green` `cyan` `black` | `preset` |
 | `background` | `preset` `none` `box` `solid` `plain` `shadow` `thin` `heavy` `outlineShadow` `solidShadow` | `preset` |
@@ -43,9 +43,14 @@ answer when the user has not said what the video is in.
 | `dubai` | Arabic | no |
 | `frutiger` | Arabic, commercially licensed | yes |
 | `neosans` | Arabic, commercially licensed | no |
+| `arial` | Latin, Greek, Cyrillic — breaks `ar` `ur` `fa` | yes |
+| `times` | Latin, Greek, Cyrillic — breaks `ar` `ur` `fa` | yes |
 
 For `targetLang: "ur"` or `"fa"`, use `noto`, `almarai` or `cairo`. A glyph the font does not carry
 is drawn as a box or a blank gap in the finished video, silently — nothing errors.
+
+`arial` and `times` are the Arial and Times New Roman looks (shipped as their open metric-compatible
+twins, Arimo and Tinos), for Latin-script captions.
 
 ## Style
 
