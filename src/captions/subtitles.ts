@@ -271,11 +271,44 @@ function applyOverrides(base: PresetStyle, opts: AssOptions): PresetStyle {
   }
 
   switch (opts.background) {
+    case 'plain':
+      // The one treatment with nothing on the text at all: no box, no
+      // outline, no shadow. Readability is the footage's problem, which is
+      // exactly what picking it means.
+      style.borderStyle = 1;
+      style.outline = 'none';
+      style.shadow = 0;
+      break;
+    case 'shadow':
+      // Bare text lifted off the footage by a drop shadow alone.
+      style.borderStyle = 1;
+      style.outline = 'none';
+      style.backColour = backdrop.shade;
+      style.shadow = 0.75;
+      break;
     case 'none':
       style.borderStyle = 1;
       style.outlineColour = backdrop.edge;
-      // Without a box the text needs an outline to stay readable.
+      // The preset's outline kept — but a box preset (Hormozi, YouTube)
+      // shipped without one, and bare on the footage its text needs one.
       if (style.outline === 'none') style.outline = 'med';
+      break;
+    case 'thin':
+      style.borderStyle = 1;
+      style.outlineColour = backdrop.edge;
+      style.outline = 'thin';
+      break;
+    case 'heavy':
+      style.borderStyle = 1;
+      style.outlineColour = backdrop.edge;
+      style.outline = 'heavy';
+      break;
+    case 'outlineShadow':
+      style.borderStyle = 1;
+      style.outlineColour = backdrop.edge;
+      style.outline = 'med';
+      style.backColour = backdrop.shade;
+      style.shadow = 0.75;
       break;
     case 'box':
       style.borderStyle = 3;
@@ -288,6 +321,14 @@ function applyOverrides(base: PresetStyle, opts: AssOptions): PresetStyle {
       style.borderStyle = 3;
       style.outlineColour = backdrop.edge;
       style.shadow = 0;
+      break;
+    case 'solidShadow':
+      // The shadow the translucent box cannot take: an opaque box stacks
+      // over a 75% shadow instead of multiplying into it.
+      style.borderStyle = 3;
+      style.outlineColour = backdrop.edge;
+      style.backColour = backdrop.shade;
+      style.shadow = 0.75;
       break;
     default:
       break;

@@ -51,6 +51,16 @@ export const BACKGROUNDS = {
   none: { label: 'None (outline only)' },
   box: { label: 'Translucent box' },
   solid: { label: 'Solid box' },
+  // Append only, like every other option list here — `encodeSettings` puts
+  // the index on the buttons, so each new treatment goes on the end. The
+  // keyboard reads them in a different order via `layout` in settings.ts.
+  // The first two are the non-outline looks: text straight on the footage.
+  plain: { label: 'Plain text (no outline)' },
+  shadow: { label: 'Shadow only (no outline)' },
+  thin: { label: 'Thin outline' },
+  heavy: { label: 'Heavy outline' },
+  outlineShadow: { label: 'Outline + drop shadow' },
+  solidShadow: { label: 'Solid box + drop shadow' },
 } as const;
 
 export type BackgroundId = keyof typeof BACKGROUNDS;

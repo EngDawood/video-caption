@@ -404,6 +404,21 @@ export const MENUS: Record<SettingsField, Menu> = {
     label: 'Background',
     icon: '🎞',
     options: Object.entries(BACKGROUNDS).map(([value, b]) => ({ value, label: b.label })),
+    // The stored order is append-only (see BACKGROUNDS), so the keyboard
+    // reads them here instead: bare text up to the fullest treatment, nothing
+    // at the top and a box plus drop shadow at the bottom.
+    layout: [
+      'preset',
+      'plain',
+      'shadow',
+      'none',
+      'thin',
+      'heavy',
+      'outlineShadow',
+      'box',
+      'solid',
+      'solidShadow',
+    ],
   },
   position: {
     label: 'Position',

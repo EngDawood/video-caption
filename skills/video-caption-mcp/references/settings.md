@@ -17,7 +17,7 @@ so it is the authority if this file and the live schema ever disagree.
 | `font` | `aljazeera` `thmanyah` `noto` `almarai` `cairo` `dubai` `frutiger` `neosans` | `aljazeera` |
 | `size` | `xsmall` `small` `medium` `large` `xlarge` | `medium` |
 | `color` | `white` `yellow` `green` `cyan` `black` | `white` |
-| `background` | `preset` `none` `box` `solid` | `preset` |
+| `background` | `preset` `none` `box` `solid` `plain` `shadow` `thin` `heavy` `outlineShadow` `solidShadow` | `preset` |
 | `position` | see below | `bottom` |
 | `chars` | `auto` `28` `36` `42` `52` `64` | `42` |
 | `stt` | `groq` `mistral` `workers-ai` | `groq` |
@@ -60,8 +60,11 @@ is drawn as a box or a blank gap in the finished video, silently — nothing err
 `size` percentages are relative to `medium`: `xsmall` 55%, `small` 70%, `medium` 100%, `large` 150%,
 `xlarge` 200%.
 
-`background`: `preset` keeps whatever the preset chose, `none` is outline only, `box` is translucent,
-`solid` is opaque.
+`background`: `preset` keeps whatever the preset chose. The rest override it — `plain` and
+`shadow` put the text straight on the footage with no outline at all (`shadow` adds a drop shadow
+instead), `none` keeps an outline only, `thin` `heavy` `outlineShadow` are outline treatments, and
+`box` `solid` `solidShadow` put a box behind the text — translucent, opaque, and opaque with a
+drop shadow.
 
 ## Position
 
