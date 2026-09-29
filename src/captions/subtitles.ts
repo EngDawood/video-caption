@@ -231,7 +231,7 @@ export interface AssOptions {
    * otherwise, which smears Arabic letterforms.
    */
   allowBold?: boolean;
-  /** Overrides the preset's text colour. */
+  /** Overrides the preset's text colour. `preset` leaves it as shipped. */
   color?: TextColorId;
   /** Overrides the preset's background treatment. */
   background?: BackgroundId;
@@ -258,13 +258,17 @@ function applyOverrides(base: PresetStyle, opts: AssOptions): PresetStyle {
   const style = { ...base };
   const backdrop = backdropFor(opts.color);
 
-  if (opts.color && TEXT_COLORS[opts.color]) {
-    style.primary = TEXT_COLORS[opts.color].value;
+  // 🖍 'Preset default' is the sentinel meaning no colour was chosen, so the
+  // preset's own text colour and its backdrop colours stand as shipped —
+  // Hormozi's yellow included.
+  const chosen = opts.color && opts.color !== 'preset' ? TEXT_COLORS[opts.color] : undefined;
+  if (chosen) {
+    style.primary = chosen.value;
 
     // The preset's own treatment needs flipping too: 🎞 Background 'preset'
     // keeps it verbatim, and clean's black outline under black text is as
     // unreadable as the box is.
-    if (!TEXT_COLORS[opts.color].light) {
+    if (!chosen.light) {
       style.outlineColour = style.borderStyle === 3 ? backdrop.box : backdrop.edge;
       style.backColour = backdrop.shade;
     }

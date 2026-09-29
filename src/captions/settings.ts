@@ -399,6 +399,10 @@ export const MENUS: Record<SettingsField, Menu> = {
     label: 'Text colour',
     icon: '🖍',
     options: Object.entries(TEXT_COLORS).map(([value, c]) => ({ value, label: c.label })),
+    // 'preset' is appended last in TEXT_COLORS (that list is append-only) and
+    // asked for first here: it is the one answer that needs no thought and
+    // keeps a 🎨 Style's own colour — Hormozi's yellow and all.
+    layout: ['preset', 'white', 'yellow', 'green', 'cyan', 'black'],
   },
   background: {
     label: 'Background',
@@ -611,7 +615,10 @@ export function defaults(env: Env): CaptionSettings {
     size: env.CAPTION_SIZE || 'medium',
     position: env.CAPTION_POSITION || 'bottom',
     font,
-    color: 'white',
+    // 'Preset default' rather than a real colour, so every 🎨 Style renders
+    // as it is drawn on the tin — Hormozi's yellow included. A colour is one
+    // tap away on the 🖍 row for anyone who wants to override it.
+    color: 'preset',
     background: 'preset',
     chars,
     sourceLang,

@@ -16,7 +16,7 @@ so it is the authority if this file and the live schema ever disagree.
 | `preset` | `clean` `hormozi` `cinematic` `youtube` `naskh` | `clean` |
 | `font` | `aljazeera` `thmanyah` `noto` `almarai` `cairo` `dubai` `frutiger` `neosans` | `aljazeera` |
 | `size` | `xsmall` `small` `medium` `large` `xlarge` | `medium` |
-| `color` | `white` `yellow` `green` `cyan` `black` | `white` |
+| `color` | `preset` `white` `yellow` `green` `cyan` `black` | `preset` |
 | `background` | `preset` `none` `box` `solid` `plain` `shadow` `thin` `heavy` `outlineShadow` `solidShadow` | `preset` |
 | `position` | see below | `bottom` |
 | `chars` | `auto` `28` `36` `42` `52` `64` | `42` |
@@ -49,7 +49,8 @@ is drawn as a box or a blank gap in the finished video, silently — nothing err
 
 ## Style
 
-`preset` sets the overall look; `color` and `background` override parts of it.
+`preset` sets the overall look; `color` and `background` override parts of it — and each accepts
+`preset` to leave the style's own choice alone, which is how 🎨 Hormozi keeps its yellow text.
 
 - `clean` — white text, outlined
 - `hormozi` — yellow on black, social-video style
