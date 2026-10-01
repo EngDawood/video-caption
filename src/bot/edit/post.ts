@@ -1,4 +1,5 @@
 import { loadSettings } from '../../captions/settings';
+import { loadShows, matchShow } from '../../captions/shows';
 import { loadCues, loadJobSettings, loadPostCaption, loadPostOrigin } from '../../media/assets';
 import { postSourceOf, postTextLanguages, writeHashtags, writePostText } from '../../pipeline/describe';
 import { escapeHtml, telegram } from '../telegram';
@@ -45,7 +46,14 @@ export async function sendPostText(
   // What was said, in the language it was said in, and what the video was
   // posted with; the translation only stands in for a video stored before
   // transcripts were kept.
-  const source = postSourceOf(stored.source?.length ? stored.source : stored.segments, caption, origin, genre);
+  const context = matchShow(await loadShows(env, chatId), [caption, origin?.author]);
+  const source = postSourceOf(
+    stored.source?.length ? stored.source : stored.segments,
+    caption,
+    origin,
+    genre,
+    context,
+  );
   if (!source) {
     await tg.answerCallbackQuery(callbackId, 'There is too little speech or text in this video to describe.');
     return;
