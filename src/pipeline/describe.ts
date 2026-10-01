@@ -23,7 +23,7 @@ import { langName, stripWrapper } from './translators';
 const DEFAULT_LANGUAGES = 'ar,en';
 
 /** Writes when the chosen writer fails; needs no key, so it is always there. */
-const FALLBACK: WriterId = 'llama70b';
+const FALLBACK: WriterId = 'deepseek';
 
 const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
@@ -84,6 +84,8 @@ export interface PostSource {
   origin: PostOrigin | null;
   /** What kind of video the user said it is on 🎭 Video type. */
   genre: GenreId;
+  /** The user's saved note on the show the post names; see `captions/shows.ts`. */
+  context: string | null;
 }
 
 /**
@@ -113,8 +115,15 @@ export function postSourceOf(
   caption: string | null | undefined,
   origin?: PostOrigin | null,
   genre: GenreId = 'auto',
+  context: string | null = null,
 ): PostSource | null {
-  const source = { transcript: transcriptOf(segments), caption: captionOf(caption), origin: origin ?? null, genre };
+  const source = {
+    transcript: transcriptOf(segments),
+    caption: captionOf(caption),
+    origin: origin ?? null,
+    genre,
+    context: context?.trim() || null,
+  };
   return source.transcript || source.caption ? source : null;
 }
 
@@ -201,6 +210,7 @@ function messagesFor(source: PostSource, lang: string): Message[] {
       ? `POSTED ON: ${source.origin.platform}` + (source.origin.author ? `\nPOSTED BY: ${source.origin.author}` : '')
       : null,
     source.genre !== 'auto' ? `VIDEO TYPE: ${GENRES[source.genre].label.replace(/^\P{L}+/u, '')}` : null,
+    source.context ? `SHOW NOTE (from the person posting):\n${source.context}` : null,
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -222,6 +232,11 @@ function messagesFor(source: PostSource, lang: string): Message[] {
             'spoke to…"). Do not credit individuals, influencers, creators or personal accounts, however ' +
             'well known, and leave it out whenever you cannot tell from what you are given. ' +
             'Never guess who a handle belongs to. '
+          : '') +
+        (source.context
+          ? 'You are also given a SHOW NOTE written by the person posting. It is accurate background on the ' +
+            'show or series: use it to say what the show is and how it works, and treat names and facts in it ' +
+            'as given. Do not quote it, and do not add facts about the show beyond it. '
           : '') +
         (POST_GENRE_HINTS[source.genre] ? `${POST_GENRE_HINTS[source.genre]} ` : '') +
         'Keep the tone calm and natural, the way a real person shares something they found worth ' +
@@ -271,7 +286,8 @@ async function ask(env: Env, writer: WriterId, messages: Message[], ms: number):
   }
 
   const res: any = await within(ms, env.AI.run(model as any, { messages, temperature: 0.7 } as any));
-  return String(res?.response ?? '');
+  // Llama answers in `response`; the newer models in the chat-completions shape.
+  return String(res?.response ?? res?.choices?.[0]?.message?.content ?? '');
 }
 
 /**

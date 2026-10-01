@@ -55,6 +55,7 @@ export { handleShareReply } from './edit/share';
  *   ed:<token>:<code>             send the whole script as an .srt file
  *   ep:<token>:<code>             send one burned frame near the first caption
  *   eo:<token>:<code>             write the 📣 post text for publishing it
+ *   ew:<token>:<show>             rewrite the 📣 post text with that 🎬 show's note ('a' = auto-match)
  *   ei:<token>                    📤 write a caption and list where it can be posted
  *   eu:<token>:<draft>:<n|x|nd>   post to the n-th account, close it, or (Facebook, 'nd') save as a draft
  *   et:<token>:<code>             list the cues and start taking corrections
@@ -64,7 +65,7 @@ export { handleShareReply } from './edit/share';
  */
 
 export function isEditCallback(data: string): boolean {
-  return /^e[msgxtfrdpoiu]?:/.test(data);
+  return /^e[msgxtfrdpoiuw]?:/.test(data);
 }
 
 /** Handle a tap anywhere in the per-video edit flow. */
@@ -104,6 +105,7 @@ export async function handleEditCallback(
   }
 
   // Sharing posts the video as it was burned; neither button carries a draft.
+  if (verb === 'ew') return sendPostText(env, chatId, callbackId, token, session, { messageId, show: code ?? 'a' });
   if (verb === 'ei') return offerShare(env, chatId, callbackId, token, session);
   if (verb === 'eu') return startShare(env, chatId, messageId, callbackId, code ?? '', rawField ?? '', session);
 
@@ -167,7 +169,7 @@ export async function handleEditCallback(
       return sendPreview(env, chatId, callbackId, session, settings);
 
     case 'eo':
-      return sendPostText(env, chatId, callbackId, session);
+      return sendPostText(env, chatId, callbackId, token, session);
 
     case 'et':
       return startFix(env, chatId, callbackId, token, code, session);

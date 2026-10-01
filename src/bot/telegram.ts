@@ -103,12 +103,19 @@ export function telegram(token: string) {
       });
     },
 
-    editMessageText(chatId: number, messageId: number, text: string, keyboard?: InlineKeyboard) {
+    editMessageText(
+      chatId: number,
+      messageId: number,
+      text: string,
+      keyboard?: InlineKeyboard,
+      parseMode?: 'HTML',
+    ) {
       // Editing to identical text is an API error; never let status updates break the job.
       return call<TgMessage>(token, 'editMessageText', {
         chat_id: chatId,
         message_id: messageId,
         text,
+        ...(parseMode ? { parse_mode: parseMode } : {}),
         ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
       }).catch(() => null);
     },
