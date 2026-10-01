@@ -263,7 +263,10 @@ the change, so a font change costs one encode and a translator change costs no t
 - **🎬 Show notes are the user's knowledge, not the model's.** `/shows Name: note` saves a note per chat
   (`shows:<chatId>` in `CAPTION_SETTINGS`, `src/captions/shows.ts`); `matchShow` attaches it when the
   post's caption or the poster's handle names the show, and `messagesFor` passes it as `SHOW NOTE`. Post
-  text and hashtags only, Telegram 📣/📤 only (an API job has no chat). Measured on one Impractical Jokers
+  text and hashtags only, Telegram only (an API job has no chat). The 📣 message carries one 🎬 button per
+  saved show (`ew:<token>:<showId>`, a name hash, not an index, so adding a show under an open card cannot
+  shift the buttons); a tap rewrites that message in place, 🔄 Auto returns to the caption match. 📤 Share
+  still uses the automatic match only. Measured on one Impractical Jokers
   video: Kimi K3 already knew the show from its caption; Llama 3.3 70B did not and wrote "A comedy sketch".
   The post writer's fallback is DeepSeek V4 Flash (`FALLBACK` in `describe.ts`), not Llama; the chosen
   writer gets `BUDGET_MS − MIN_FALLBACK_MS`, so a fallback that takes 8–11 s only finishes when the first

@@ -47,7 +47,7 @@ const fold = (text: string) =>
  * caption, the poster's handle), or null. The longest name wins, so "Impractical
  * Jokers Inside Jokes" is not shadowed by "Impractical Jokers".
  */
-export function matchShow(shows: Shows, texts: Array<string | null | undefined>): string | null {
+export function findShow(shows: Shows, texts: Array<string | null | undefined>): string | null {
   const folded = fold(texts.filter(Boolean).join(' '));
   const haystack = ` ${folded} `;
   // A handle runs the words together (@ImpracticalJokers), so a spaceless
@@ -57,11 +57,27 @@ export function matchShow(shows: Shows, texts: Array<string | null | undefined>)
   for (const name of names) {
     const needle = fold(name);
     if (!needle) continue;
-    if (haystack.includes(` ${needle} `)) return shows[name];
+    if (haystack.includes(` ${needle} `)) return name;
     const joined = needle.replace(/ /g, '');
-    if (joined.length >= 8 && squashed.includes(joined)) return shows[name];
+    if (joined.length >= 8 && squashed.includes(joined)) return name;
   }
   return null;
+}
+
+export function matchShow(shows: Shows, texts: Array<string | null | undefined>): string | null {
+  const name = findShow(shows, texts);
+  return name === null ? null : shows[name];
+}
+
+/**
+ * A short, stable id for a show's button. An index would point at the wrong
+ * show once one is added or removed under an open card; a hash of the name
+ * does not. Six base-36 digits keep `ew:<token>:<id>` far under 64 bytes.
+ */
+export function showId(name: string): string {
+  let h = 5381;
+  for (const ch of fold(name)) h = (Math.imul(h, 33) + ch.codePointAt(0)!) >>> 0;
+  return h.toString(36).padStart(6, '0').slice(-6);
 }
 
 const USAGE = [
