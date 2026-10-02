@@ -35,11 +35,16 @@ import { parseSrt } from './srt';
  */
 const CANDIDATES: Record<string, TranslatorModel & { label: string }> = {
   ...TRANSLATORS,
+  // Workers AI models not on the menu yet, to find a stronger default.
+  cfkimi: { label: 'Kimi K2.6 (Workers AI)', model: '@cf/moonshotai/kimi-k2.6', kind: 'chat' },
+  cfglm: { label: 'GLM 5.3 (Workers AI)', model: '@cf/zai-org/glm-5.3', kind: 'chat' },
+  cfdeepseek: { label: 'DeepSeek V4 Flash (Workers AI)', model: '@cf/deepseek-ai/deepseek-v4-flash-0731', kind: 'chat' },
+  cfnemotron: { label: 'Nemotron 3 120B (Workers AI)', model: '@cf/nvidia/nemotron-3-120b-a12b', kind: 'chat' },
   // Google Translate's free web endpoint, keyless and unofficial: a baseline
   // to beat, not a production option. Plain MT, so no context and no repair.
   google: { label: 'Google Translate (free web endpoint)', model: 'google:gtx', kind: 'mt' },
   mistral: { label: 'Mistral Medium (Mistral)', model: 'mistral:mistral-medium-latest', kind: 'chat' },
-  gptoss: { label: 'GPT-OSS 120B (Groq)', model: 'groq:openai/gpt-oss-120b', kind: 'chat' },
+  groqgptoss: { label: 'GPT-OSS 120B (Groq)', model: 'groq:openai/gpt-oss-120b', kind: 'chat' },
   qwen: { label: 'Qwen 3.8 27B (Groq)', model: 'groq:qwen/qwen3.8-27b', kind: 'chat' },
 };
 
@@ -305,7 +310,7 @@ function report(runs: Run[], models: string[], samples: Sample[], judgeModel: st
 }
 
 async function main() {
-  const models = (arg('models') ?? 'llama70b,riva,google,kimi,glm,deepseek,mistral,gptoss').split(',');
+  const models = (arg('models') ?? 'llama70b,gptoss,riva,google').split(',');
   for (const m of models) if (!CANDIDATES[m]) throw new Error(`unknown model ${m}; one of ${Object.keys(CANDIDATES).join(', ')}`);
   const wanted = arg('samples')?.split(',');
   const samples = SAMPLES.filter((s) => !wanted || wanted.some((w) => s.file.startsWith(w)));

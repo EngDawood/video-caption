@@ -178,7 +178,7 @@ export type SttProviderId = keyof typeof STT_PROVIDERS;
  */
 export const TRANSLATORS = {
   llama70b: {
-    label: 'Llama 3.3 70B — most accurate',
+    label: 'Llama 3.3 70B — fastest',
     model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
     kind: 'chat',
   },
@@ -211,6 +211,15 @@ export const TRANSLATORS = {
     label: 'DeepSeek V4.1 Flash — NVIDIA',
     model: 'deepseek-ai/deepseek-v4.1-flash',
     kind: 'nvidia-chat',
+  },
+  // The strongest on the translation eval (tests/translation): 18 of 19
+  // meaning checks against Llama 3.3's 15, and the fastest of the large
+  // Workers AI models — Kimi K2.6 and GLM 5.3 there are too slow for the
+  // translate step's five minutes. It answers in the `choices` shape.
+  gptoss: {
+    label: 'GPT-OSS 120B — Cloudflare, most accurate',
+    model: '@cf/openai/gpt-oss-120b',
+    kind: 'chat',
   },
 } as const;
 
