@@ -19,6 +19,7 @@ import {
 } from './bot/jobs';
 import { MENU_TITLE, handleMenuCallback, rootKeyboard, summary } from './bot/menu';
 import { loadSettings } from './captions/settings';
+import { handleShowsCommand } from './captions/shows';
 import { extractVideo, telegram, videoPicture, type BotCommand, type TgUpdate } from './bot/telegram';
 import type { CaptionSettings } from './captions/settings';
 import type { Env } from './types';
@@ -68,6 +69,7 @@ const COMMANDS: BotCommand[] = [
   { command: 'info', description: 'How it works, the limits and the current setup' },
   { command: 'settings', description: 'Caption style every new video starts from' },
   { command: 'style', description: 'Show the current caption style' },
+  { command: 'shows', description: 'Notes on your shows, read when writing post text' },
   { command: 'help', description: 'Show the quick guide again' },
 ];
 
@@ -307,6 +309,9 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
       } else if (command === '/settings') {
         const settings = await loadSettings(env, chatId);
         await tg.sendMessage(chatId, MENU_TITLE, message.message_id, rootKeyboard(settings));
+      } else if (command === '/shows') {
+        const args = (message.text ?? '').replace(/^\/shows(@\w+)?/i, '');
+        await tg.sendMessage(chatId, await handleShowsCommand(env, chatId, args), message.message_id);
       } else if (command === '/style') {
         const settings = await loadSettings(env, chatId);
         await tg.sendMessage(chatId, summary(settings), message.message_id);

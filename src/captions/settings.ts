@@ -221,9 +221,10 @@ export type TranslatorId = keyof typeof TRANSLATORS;
  *
  * Writing a hook worth posting is a harder job than translating a line, so the
  * NVIDIA-hosted frontier models lead; they share `NVIDIA_API_KEY` with the Riva
- * translator. Llama 3.3 70B on Workers AI is the one that needs no key, and is
- * also what `writePostText` falls back to when the chosen model fails or runs
- * out of time. `kind` has the same meaning as in `TRANSLATORS`.
+ * translator. Llama 3.3 70B and DeepSeek V4 Flash on Workers AI need no key;
+ * DeepSeek is what `writePostText` falls back to when the chosen model fails
+ * or runs out of time (Llama wrote generic text and ignored the original
+ * post's title). `kind` has the same meaning as in `TRANSLATORS`.
  *
  * Append only — `encodeSettings` puts this order on the buttons.
  */
@@ -241,6 +242,11 @@ export const WRITERS = {
   llama70b: {
     label: 'Llama 3.3 70B — Cloudflare, no key',
     model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    kind: 'chat',
+  },
+  deepseek: {
+    label: 'DeepSeek V4 Flash — Cloudflare, no key',
+    model: '@cf/deepseek-ai/deepseek-v4-flash-0731',
     kind: 'chat',
   },
 } as const;

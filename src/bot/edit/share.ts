@@ -1,5 +1,6 @@
 import { loadCues, loadJobSettings, loadPostCaption, loadPostOrigin } from '../../media/assets';
 import { loadSettings } from '../../captions/settings';
+import { loadShows, matchShow } from '../../captions/shows';
 import { postSourceOf, postTextLanguages, writeHashtags, writePostText } from '../../pipeline/describe';
 import { publishTargets, targetLabel, type Target } from '../../social/composio';
 import type { PublishJob } from '../../social/publish';
@@ -81,8 +82,10 @@ async function writeCaption(env: Env, chatId: number, assetJobId: string): Promi
     loadPostOrigin(env, assetJobId),
     loadJobSettings(env, assetJobId),
   ]);
+  const context = matchShow(await loadShows(env, chatId), [posted, origin?.author]);
   const source =
-    stored && postSourceOf(stored.source?.length ? stored.source : stored.segments, posted, origin, ran?.genre);
+    stored &&
+    postSourceOf(stored.source?.length ? stored.source : stored.segments, posted, origin, ran?.genre, context);
   if (!source) return '';
 
   const { writer } = await loadSettings(env, chatId);

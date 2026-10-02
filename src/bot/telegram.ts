@@ -103,15 +103,23 @@ export function telegram(token: string) {
       });
     },
 
-    editMessageText(chatId: number, messageId: number, text: string, keyboard?: InlineKeyboard) {
+    editMessageText(
+      chatId: number,
+      messageId: number,
+      text: string,
+      keyboard?: InlineKeyboard,
+      parseMode?: 'HTML',
+    ) {
       // Editing to identical text is an API error; never let status updates break the job.
       // A photo card (the ✏️ Edit card carries a picture) refuses editMessageText, so
       // the same line goes in as its caption instead.
+      const mode = parseMode ? { parse_mode: parseMode } : {};
       const markup = keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {};
       return call<TgMessage>(token, 'editMessageText', {
         chat_id: chatId,
         message_id: messageId,
         text,
+        ...mode,
         ...markup,
       })
         .catch(() =>
@@ -119,6 +127,7 @@ export function telegram(token: string) {
             chat_id: chatId,
             message_id: messageId,
             caption: text,
+            ...mode,
             ...markup,
           }),
         )
