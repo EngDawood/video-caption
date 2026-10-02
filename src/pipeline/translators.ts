@@ -160,6 +160,16 @@ const NVIDIA_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
 /** Longest a single NVIDIA chat call may take; Kimi thinks before it answers. */
 const NVIDIA_CHAT_TIMEOUT_MS = 60_000;
 
+/**
+ * Room for an answer. Workers AI's own default is a few hundred tokens, which
+ * the reasoning models on it (Kimi, GLM, DeepSeek, GPT-OSS) can spend entirely
+ * on thinking and then return an empty answer.
+ */
+const MAX_ANSWER_TOKENS = 4096;
+
+/** Reasoning models sometimes leave their thinking in the answer; cut it. */
+const withoutThinking = (text: string): string => text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -168,6 +178,10 @@ export interface ChatMessage {
 /**
  * One answer from a `chat` or `nvidia-chat` translator — the same messages
  * either way, sent to Workers AI or to NVIDIA's endpoint.
+ *
+ * Workers AI answers the older chat models as `{ response }` and the newer
+ * ones (GPT-OSS, Kimi, GLM, DeepSeek) in OpenAI's `choices` shape, so both
+ * are read.
  *
  * NVIDIA rate-limits by the minute and a translation fans six units out at
  * once, so a 429 waits and tries again once here rather than spending one of
@@ -181,8 +195,8 @@ export async function chatComplete(
   temperature: number,
 ): Promise<string> {
   if (model.kind !== 'nvidia-chat') {
-    const res: any = await env.AI.run(model.model as any, { messages, temperature } as any);
-    return String(res?.response ?? '').trim();
+    const res: any = await env.AI.run(model.model as any, { messages, temperature, max_tokens: MAX_ANSWER_TOKENS } as any);
+    return withoutThinking(String(res?.response ?? res?.choices?.[0]?.message?.content ?? ''));
   }
 
   const apiKey = env.NVIDIA_API_KEY;
@@ -192,7 +206,7 @@ export async function chatComplete(
     const res = await fetch(NVIDIA_ENDPOINT, {
       method: 'POST',
       headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: model.model, messages, temperature, max_tokens: 4096, stream: false }),
+      body: JSON.stringify({ model: model.model, messages, temperature, max_tokens: MAX_ANSWER_TOKENS, stream: false }),
       signal: AbortSignal.timeout(NVIDIA_CHAT_TIMEOUT_MS),
     });
     if (res.status === 429 && attempt === 0) {
@@ -201,9 +215,7 @@ export async function chatComplete(
     }
     if (!res.ok) throw new Error(`${model.model} failed (${res.status}): ${await res.text()}`);
     const data: any = await res.json();
-    return String(data?.choices?.[0]?.message?.content ?? '')
-      .replace(/<think>[\s\S]*?<\/think>/g, '')
-      .trim();
+    return withoutThinking(String(data?.choices?.[0]?.message?.content ?? ''));
   }
 }
 
