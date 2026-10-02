@@ -111,13 +111,27 @@ export function telegram(token: string) {
       parseMode?: 'HTML',
     ) {
       // Editing to identical text is an API error; never let status updates break the job.
+      // A photo card (the ✏️ Edit card carries a picture) refuses editMessageText, so
+      // the same line goes in as its caption instead.
+      const mode = parseMode ? { parse_mode: parseMode } : {};
+      const markup = keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {};
       return call<TgMessage>(token, 'editMessageText', {
         chat_id: chatId,
         message_id: messageId,
         text,
-        ...(parseMode ? { parse_mode: parseMode } : {}),
-        ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}),
-      }).catch(() => null);
+        ...mode,
+        ...markup,
+      })
+        .catch(() =>
+          call<TgMessage>(token, 'editMessageCaption', {
+            chat_id: chatId,
+            message_id: messageId,
+            caption: text,
+            ...mode,
+            ...markup,
+          }),
+        )
+        .catch(() => null);
     },
 
     /**
@@ -242,7 +256,11 @@ export function telegram(token: string) {
       if (!data.ok) throw new Error(`telegram editMessageMedia failed: ${data.description ?? res.status}`);
     },
 
-    async sendVideo(chatId: number, video: ArrayBuffer, opts: { caption?: string; replyTo?: number } = {}) {
+    async sendVideo(
+      chatId: number,
+      video: ArrayBuffer,
+      opts: { caption?: string; replyTo?: number } = {},
+    ): Promise<TgMessage> {
       const form = new FormData();
       form.append('chat_id', String(chatId));
       form.append('supports_streaming', 'true');
@@ -254,8 +272,9 @@ export function telegram(token: string) {
       form.append('video', new File([video], 'captioned.mp4', { type: 'video/mp4' }));
 
       const res = await fetch(`${API}/bot${token}/sendVideo`, { method: 'POST', body: form });
-      const data = (await res.json()) as { ok: boolean; description?: string };
+      const data = (await res.json()) as { ok: boolean; result?: TgMessage; description?: string };
       if (!data.ok) throw new Error(`telegram sendVideo failed: ${data.description ?? res.status}`);
+      return data.result as TgMessage;
     },
 
     /**

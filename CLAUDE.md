@@ -51,6 +51,8 @@ is resvg (rustybuzz shaping, SVG strokes), not libass. A link's thumbnail goes o
 plain photo so Telegram hands it back as a JPEG by file id (resvg-wasm cannot decode WebP), then
 the drawn one is swapped in. The picture's source lives under `startpic:<token>`, written once.
 
+A linked post's own text (`captionOf(media.caption)`, capped at 200 chars) sits above the card as its title, so the user can tell which video it is. The ✏️ **Edit card** is a picture too: `deliver` keeps the delivered video's Telegram thumbnail in R2 (`assetKeys.thumb`, pointer and frame size in D1 via `migrations/0002_thumbnail.sql`, run `npm run db:migrate`), and `sendEditCard` draws the burned settings on it with the same `renderMockup`, redrawing on a `MOCKUP_FIELDS` pick. `editMessageText` falls back to `editMessageCaption`, which is what lets every existing edit-card status line work on a photo. Typechecked only; not run against live Telegram.
+
 With 📝 **Check script** on, the run *ends* after translate and posts the script as an `.srt` with
 a ✅ Burn it card. The burn is then the same `restyle` re-run the ♻️ Apply button has always
 queued, over the cues already in R2 — no Workflow instance is held open waiting for a tap, and

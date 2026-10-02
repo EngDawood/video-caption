@@ -3,6 +3,7 @@ import { loadCues } from '../../media/assets';
 import { summary, type MenuScope } from '../menu';
 import { telegram, type InlineKeyboard } from '../telegram';
 import type { Env } from '../../types';
+import { drawEditPicture, type EditPicture } from './picture';
 import { previewCaption, renderPreview } from './preview';
 import { sendScript } from './script';
 import { canShare } from './share';
@@ -36,6 +37,7 @@ export const scopeFor = (token: string, settings: CaptionSettings): MenuScope =>
 });
 
 const CARD_TITLE = '🎬 Captioned with:';
+export const EDIT_PICTURE_NOTE = '🖼 Sample text on your thumbnail. A close sketch, not the exact render.';
 export const MENU_TITLE =
   '✏️ Editing this video only\n\nChange what you like, then tap ♻️ Apply.\nYour chat defaults are untouched.';
 
@@ -54,11 +56,12 @@ export async function sendEditCard(
   messageId: number,
   assetJobId: string,
   settings: CaptionSettings,
+  picture: EditPicture | null = null,
 ): Promise<void> {
   const tg = telegram(env.TELEGRAM_BOT_TOKEN);
 
   try {
-    const token = await openSession(env, { assetJobId, messageId, settings });
+    const token = await openSession(env, { assetJobId, messageId, settings, ...(picture ? { picture } : {}) });
     if (!token) return;
 
     const code = encodeSettings(settings);
@@ -78,12 +81,26 @@ export async function sendEditCard(
       ],
       [{ text: '✖️ Cancel', callback_data: `ex:${token}` }],
     ];
-    await tg.sendMessage(
-      chatId,
-      `${CARD_TITLE}\n${summary(settings, EDIT_FIELDS)}`,
-      messageId,
-      keyboard,
-    );
+    const body = `${CARD_TITLE}\n${summary(settings, EDIT_FIELDS)}`;
+
+    // The picture is the delivered video's own thumbnail with these settings'
+    // sample captions on it. Any failure drops back to the plain text card.
+    const png = picture ? await drawEditPicture(env, assetJobId, picture, settings) : null;
+    if (png) {
+      try {
+        await tg.sendPhotoFile(chatId, png, {
+          caption: `${body}\n\n${EDIT_PICTURE_NOTE}`,
+          replyTo: messageId,
+          keyboard,
+          png: true,
+        });
+        return;
+      } catch (err) {
+        console.error('[edit] could not send the card picture:', err);
+      }
+    }
+
+    await tg.sendMessage(chatId, body, messageId, keyboard);
   } catch (err) {
     console.error('[edit] could not offer a restyle:', err);
   }

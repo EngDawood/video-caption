@@ -1,6 +1,7 @@
 import { NonRetryableError } from 'cloudflare:workflows';
 import { resolveVideo } from '../media/download';
 import { purgeAssets } from '../media/assets';
+import { captionOf } from '../pipeline/describe';
 import { ffmpegFor } from '../media/ffmpeg';
 import {
   MENUS,
@@ -74,6 +75,8 @@ interface StartSession {
   messageId: number;
   /** The one-line description of a resolved link, kept so redraws keep it. */
   preview?: string;
+  /** The linked post's own text, shown above the card so the user can tell which video it is. */
+  title?: string;
 }
 
 /**
@@ -229,7 +232,7 @@ export async function sendOffer(
     const sent = await sendStartCard(
       env,
       chatId,
-      { sourceUrl: url, messageId, preview: card },
+      { sourceUrl: url, messageId, preview: card, title: titleOf(media.caption) },
       settings,
       media.thumbnail ? { url: media.thumbnail } : undefined,
     );
@@ -329,8 +332,23 @@ const START_HINT = [
 /** Under the picture, so a sketch is never mistaken for the burn itself. */
 const PICTURE_NOTE = '🖼 Sample text on your thumbnail. A close sketch, not the exact render.';
 
-const startBody = (preview?: string, picture?: boolean) =>
-  [START_TITLE, ...(preview ? [preview] : []), '', START_HINT, ...(picture ? ['', PICTURE_NOTE] : [])].join('\n');
+const startBody = ({ title, preview }: Pick<StartSession, 'title' | 'preview'>, picture?: boolean) =>
+  [
+    ...(title ? [title, ''] : []),
+    START_TITLE,
+    ...(preview ? [preview] : []),
+    '',
+    START_HINT,
+    ...(picture ? ['', PICTURE_NOTE] : []),
+  ].join('\n');
+
+/** A post's text is a stranger's and can run long; a card caption is capped at 1024. */
+const TITLE_CHARS = 200;
+const titleOf = (raw: string | undefined): string | undefined => {
+  const text = captionOf(raw)?.replace(/\s+/g, ' ');
+  if (!text) return undefined;
+  return text.length > TITLE_CHARS ? `${text.slice(0, TITLE_CHARS - 1).trimEnd()}…` : text;
+};
 
 /** The largest size of a photo message — the one Telegram re-encoded least. */
 const largestPhoto = (message: TgMessage) => message.photo?.[message.photo.length - 1];
@@ -416,7 +434,7 @@ export async function sendStartCard(
     if (png) {
       try {
         await tg.sendPhotoFile(chatId, png, {
-          caption: startBody(session.preview, true),
+          caption: startBody(session, true),
           replyTo: session.messageId,
           keyboard,
           png: true,
@@ -433,7 +451,7 @@ export async function sendStartCard(
   // same card as text.
   if (picture && 'url' in picture) {
     const sent = await tg.sendPhoto(chatId, picture.url, {
-      caption: startBody(session.preview),
+      caption: startBody(session),
       replyTo: session.messageId,
       keyboard,
     });
@@ -444,7 +462,7 @@ export async function sendStartCard(
         if (png) {
           await tg
             .editMessagePhoto(chatId, sent.message_id, png, {
-              caption: startBody(session.preview, true),
+              caption: startBody(session, true),
               keyboard,
               png: true,
             })
@@ -455,7 +473,7 @@ export async function sendStartCard(
     }
   }
 
-  await tg.sendMessage(chatId, startBody(session.preview), session.messageId, keyboard);
+  await tg.sendMessage(chatId, startBody(session), session.messageId, keyboard);
   return true;
 }
 
@@ -508,7 +526,7 @@ export async function handleStartCallback(
     isPhotoCard && env.CAPTION_SETTINGS
       ? await env.CAPTION_SETTINGS.get<CardPicture>(pictureKey(token), 'json')
       : null;
-  const body = startBody(session.preview, Boolean(picture));
+  const body = startBody(session, Boolean(picture));
 
   switch (verb) {
     case 'gm': {

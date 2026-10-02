@@ -30,6 +30,8 @@ export const assetKeys = (jobId: string) => ({
    * before to choose a depth — and it only exists once there is a video.
    */
   settings: `jobs/${jobId}/settings.json`,
+  /** The delivered video's Telegram thumbnail (JPEG) — what the ✏️ Edit card draws its picture on. */
+  thumb: `jobs/${jobId}/thumb.jpg`,
 });
 
 /**
@@ -86,7 +88,7 @@ export async function loadPostText(env: Env, jobId: string): Promise<Record<stri
 /** Drop everything a job stored. Safe to call twice. */
 export async function purgeAssets(env: Env, jobId: string): Promise<void> {
   const keys = assetKeys(jobId);
-  await env.MEDIA.delete([keys.input, keys.output, keys.segments, keys.caption, keys.origin, keys.post, keys.settings]).catch((err) => {
+  await env.MEDIA.delete([keys.input, keys.output, keys.segments, keys.caption, keys.origin, keys.post, keys.settings, keys.thumb]).catch((err) => {
     console.error(`[assets] purge failed for ${jobId}:`, err);
   });
 }

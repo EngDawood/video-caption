@@ -5,12 +5,14 @@ import {
   defaults,
   type SettingsField,
 } from '../captions/settings';
+import { MOCKUP_FIELDS } from '../captions/mockup';
 import { loadCues, purgeAssets } from '../media/assets';
 import { fieldKeyboard, readChoice, rootKeyboard, shortLabel } from './menu';
 import { telegram } from './telegram';
 import type { Env } from '../types';
 import { MENU_TITLE, scopeFor } from './edit/cards';
 import { sendPostText } from './edit/post';
+import { drawEditPicture } from './edit/picture';
 import { sendPreview } from './edit/preview';
 import { revisionOf, startRestyle } from './edit/rerun';
 import { sendScript, startFix } from './edit/script';
@@ -75,6 +77,7 @@ export async function handleEditCallback(
   messageId: number,
   callbackId: string,
   data: string,
+  isPhotoCard = false,
 ): Promise<void> {
   const tg = telegram(env.TELEGRAM_BOT_TOKEN);
   const [verb, token, code, rawField] = data.split(':');
@@ -147,7 +150,23 @@ export async function handleEditCallback(
       if (!field) return void (await tg.answerCallbackQuery(callbackId, 'Unknown option'));
 
       await tg.answerCallbackQuery(callbackId, `${MENUS[field].label}: ${shortLabel(field, settings[field])}`);
-      await tg.editMessageText(chatId, messageId, MENU_TITLE, rootKeyboard(settings, scope));
+      const keyboard = rootKeyboard(settings, scope);
+
+      // On a picture card, a change the picture shows redraws it. A failed
+      // redraw leaves the previous picture up with the new menu.
+      if (isPhotoCard && session.picture && MOCKUP_FIELDS.has(field)) {
+        const png = await drawEditPicture(env, session.assetJobId, session.picture, settings);
+        if (png) {
+          try {
+            await tg.editMessagePhoto(chatId, messageId, png, { caption: MENU_TITLE, keyboard, png: true });
+            return;
+          } catch (err) {
+            console.error('[edit] could not redraw the card picture:', err);
+          }
+        }
+      }
+
+      await tg.editMessageText(chatId, messageId, MENU_TITLE, keyboard);
       return;
     }
 

@@ -76,6 +76,23 @@ export async function recordCorrection(env: Env, assetJobId: string, stored: Sto
   );
 }
 
+/** Note where the delivered video's thumbnail is kept in R2, and the frame size it stands for. */
+export async function recordThumbnail(
+  env: Env,
+  assetJobId: string,
+  key: string,
+  width?: number,
+  height?: number,
+): Promise<void> {
+  await run(
+    env,
+    'recordThumbnail',
+    env.DB?.prepare(
+      'UPDATE requests SET thumb_key = ?, thumb_width = ?, thumb_height = ?, updated_at = ? WHERE job_id = ?',
+    ).bind(key, width ?? null, height ?? null, Date.now(), assetJobId),
+  );
+}
+
 export async function recordStatus(
   env: Env,
   assetJobId: string,

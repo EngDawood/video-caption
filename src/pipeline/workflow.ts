@@ -330,14 +330,14 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
       });
 
       // 7. Send it back.
-      await step.do('deliver', RETRY, async () => {
+      const picture = await step.do('deliver', RETRY, async () => {
         // A loader, not the bytes: only Telegram needs the MP4 in hand — an API
         // job is delivered as a link, and reading it here would be pure waste.
-        await channel.deliver(async () => {
+        return channel.deliver(async () => {
           const object = await env.MEDIA.get(keys.output);
           if (!object) throw new Error('burned video missing from R2');
           return object.arrayBuffer();
-        });
+        }, assetJobId);
       });
 
       await step.do('cleanup', async () => {
@@ -365,7 +365,7 @@ export class CaptionWorkflow extends WorkflowEntrypoint<Env, CaptionJob> {
 
       // 8. Offer to change how it looks, for this video only.
       await step.do('offer-restyle', async () => {
-        await channel.offerEdit(assetJobId, settings);
+        await channel.offerEdit(assetJobId, settings, picture);
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

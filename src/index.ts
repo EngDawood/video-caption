@@ -258,7 +258,7 @@ async function handleUpdate(update: TgUpdate, env: Env): Promise<void> {
 
     // Restyling one delivered video, as opposed to the chat-wide defaults below.
     if (isEditCallback(query.data)) {
-      await handleEditCallback(env, origin.chat.id, origin.message_id, query.id, query.data);
+      await handleEditCallback(env, origin.chat.id, origin.message_id, query.id, query.data, Boolean(origin.photo));
       return;
     }
 

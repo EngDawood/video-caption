@@ -1,5 +1,6 @@
 import type { CaptionSettings } from '../../captions/settings';
 import type { Env } from '../../types';
+import type { EditPicture } from './picture';
 
 /** The KV records behind the per-video cards. Each is written once, never rewritten. */
 
@@ -28,6 +29,8 @@ export interface EditSession {
    * it to work out how much of the pipeline has to happen again.
    */
   settings?: CaptionSettings;
+  /** Frame size of the thumbnail in R2, when the card carries a picture drawn on it. */
+  picture?: EditPicture;
 }
 
 /**

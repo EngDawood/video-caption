@@ -1,4 +1,5 @@
 import { sendEditCard, sendReviewCard, type ReviewCard } from '../bot/edit';
+import { keepThumbnail, type EditPicture } from '../bot/edit/picture';
 import { cancelKeyboard } from '../bot/jobs';
 import { telegram } from '../bot/telegram';
 import { releaseSlot } from '../api/concurrency';
@@ -26,11 +27,11 @@ export interface Channel {
    * The finished video, once `burn-subtitles` has written it to `keys.output`.
    * `load` reads it from R2 — called only by a channel that sends the bytes.
    */
-  deliver(load: () => Promise<ArrayBuffer>): Promise<void>;
+  deliver(load: () => Promise<ArrayBuffer>, assetJobId: string): Promise<EditPicture | null>;
   /** Offer to check the script before burning. False if it could not be posted. */
   offerReview(assetJobId: string, settings: CaptionSettings): Promise<ReviewCard | false>;
   /** Offer to restyle the delivered video. A no-op where there is no such follow-up. */
-  offerEdit(assetJobId: string, settings: CaptionSettings): Promise<void>;
+  offerEdit(assetJobId: string, settings: CaptionSettings, picture: EditPicture | null): Promise<void>;
 }
 
 /**
@@ -68,16 +69,17 @@ function telegramChannel(env: Env, job: CaptionJob): Channel {
       return this.settle(`❌ Failed: ${reason}`);
     },
 
-    async deliver(load) {
-      await tg.sendVideo(chatId, await load(), { replyTo: messageId });
+    async deliver(load, assetJobId) {
+      const sent = await tg.sendVideo(chatId, await load(), { replyTo: messageId });
+      return keepThumbnail(env, assetJobId, sent);
     },
 
     async offerReview(assetJobId, settings) {
       return sendReviewCard(env, chatId, messageId, assetJobId, settings);
     },
 
-    async offerEdit(assetJobId, settings) {
-      await sendEditCard(env, chatId, messageId, assetJobId, settings);
+    async offerEdit(assetJobId, settings, picture) {
+      await sendEditCard(env, chatId, messageId, assetJobId, settings, picture);
     },
   };
 }
@@ -136,6 +138,7 @@ function webhookChannel(env: Env, job: CaptionJob, callbackUrl: string | undefin
     async deliver() {
       await post({ event: 'completed', message: '✅ Done.', downloadUrl: outputUrl(env, job.jobId) });
       await releaseSlot(env, job.jobId);
+      return null;
     },
 
     // No script-review card exists over the API — rejected at submission
