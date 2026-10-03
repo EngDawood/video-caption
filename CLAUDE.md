@@ -294,6 +294,14 @@ the change, so a font change costs one encode and a translator change costs no t
   Instagram gets its caption with `#` sent as `%23` because Composio's schema says so; that is
   unverified, as is whether LinkedIn's Little Text Format wants `#` escaped.
 
+- **AI calls go through AI Gateway when `AI_GATEWAY_ID` is set** (`src/pipeline/gateway.ts`). Every
+  `env.AI.run` passes `aiOptions(env)`; the binding is pre-authenticated, so Workers AI needs only the
+  id. Groq and Mistral are `fetch`es to the gateway URL (`getUrl`, so no account id in code) and
+  need the `AI_GATEWAY_TOKEN` secret (`Run` permission), because the auto-created `default` gateway
+  has Authentication on; without the token they call the provider directly instead of failing.
+  NVIDIA is not routed: it is not a native gateway provider and would need a Custom Provider.
+  Unverified against a live gateway from this machine.
+
 ## Environment
 
 Vars live in `wrangler.jsonc`; secrets go in `.dev.vars` locally (`npx wrangler secret put` in

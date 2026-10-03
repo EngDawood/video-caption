@@ -144,6 +144,12 @@
 		// workers-ai needs no key and is therefore always the last resort.
 		// groq (GROQ_API_KEY) | mistral (MISTRAL_API_KEY) | workers-ai (no key)
 		"STT_PROVIDER": "groq",
+		// AI Gateway for Workers AI, Groq and Mistral calls (logs, analytics per
+		// model). "default" is created by Cloudflare on first use; empty string
+		// calls every provider directly. Groq/Mistral also need the
+		// AI_GATEWAY_TOKEN secret, since the default gateway is authenticated.
+		// NVIDIA is not routed (not a native gateway provider).
+		"AI_GATEWAY_ID": "default",
 		// Workers AI speech model — used only on the workers-ai leg of that
 		// chain. Groq and Mistral name their own models in src/pipeline/ai.ts.
 		"WHISPER_MODEL": "@cf/openai/whisper-large-v3-turbo",

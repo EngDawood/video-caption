@@ -60,6 +60,11 @@ export interface Env {
    * Unset means the deployed defaults above, with no chat's changes.
    */
   API_SETTINGS_CHAT_ID?: string;
+  /**
+   * AI Gateway that Workers AI, Groq and Mistral calls are routed through
+   * (`pipeline/gateway.ts`). Unset means straight to each provider.
+   */
+  AI_GATEWAY_ID?: string;
 
   // secrets (wrangler secret put)
   TELEGRAM_BOT_TOKEN: string;
@@ -73,6 +78,12 @@ export interface Env {
   /** Both are used: one is the preferred STT provider, the other its fallback. */
   GROQ_API_KEY?: string;
   MISTRAL_API_KEY?: string;
+  /**
+   * `cf-aig-authorization` token for an authenticated gateway. Only the Groq
+   * and Mistral calls need it (the binding is pre-authenticated); unset, they
+   * skip the gateway and call the provider directly.
+   */
+  AI_GATEWAY_TOKEN?: string;
   /**
    * NVIDIA NIM key for the Riva translator. Unset means picking 🧠 Riva on the
    * menu fails that job's translation step rather than silently falling back

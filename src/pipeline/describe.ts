@@ -2,6 +2,7 @@ import { GENRES, WRITERS, type GenreId, type WriterId } from '../captions/settin
 import { sanitize } from '../captions/text';
 import type { PostOrigin } from '../media/download';
 import type { Env, Segment } from '../types';
+import { aiOptions } from './gateway';
 import { isPlausible } from './translate';
 import { langName, stripWrapper } from './translators';
 
@@ -285,7 +286,7 @@ async function ask(env: Env, writer: WriterId, messages: Message[], ms: number):
     return String(data?.choices?.[0]?.message?.content ?? '');
   }
 
-  const res: any = await within(ms, env.AI.run(model as any, { messages, temperature: 0.7 } as any));
+  const res: any = await within(ms, env.AI.run(model as any, { messages, temperature: 0.7 } as any, aiOptions(env)));
   // Llama answers in `response`; the newer models in the chat-completions shape.
   return String(res?.response ?? res?.choices?.[0]?.message?.content ?? '');
 }

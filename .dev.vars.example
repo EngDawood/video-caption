@@ -18,6 +18,11 @@ TELEGRAM_WEBHOOK_SECRET=change-me
 # STT_PROVIDER=mistral  -> https://console.mistral.ai/api-keys
 # MISTRAL_API_KEY=...
 
+# Routes Groq/Mistral transcription through AI Gateway (AI_GATEWAY_ID in
+# wrangler.jsonc). Token needs AI Gateway: Run. Unset = those two call the
+# provider directly; Workers AI goes through the gateway either way.
+# AI_GATEWAY_TOKEN=
+
 # Only needed to pick 🧠 NVIDIA Riva 4B on the Translator menu.
 # https://integrate.api.nvidia.com
 # NVIDIA_API_KEY=nvapi-...
