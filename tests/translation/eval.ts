@@ -3,8 +3,14 @@
  * (`translateWith`, so grouping, context, script checks and leak repair all
  * apply) over the sample scripts with each candidate model, then scores it.
  *
- *   npm run eval:translate -- --models=llama70b,kimi --samples=script-6,script-8 --judge=kimi
- *   npm run eval:translate -- --models=llama70b --genre=auto   # without the 🎭 video types
+ *   node --env-file-if-exists=.dev.vars --import tsx tests/translation/eval.ts \
+ *     --models=llama70b --samples=script-6,script-8 --judge=none
+ *
+ * Deliberately not an npm script: every run is paid. Each sample is one call
+ * per line per model plus a glossary call and repairs, and the reasoning
+ * models bill their thinking too — one comparison of five Workers AI models
+ * over all eight samples came to about 2,400 calls and 270k neurons. Name the
+ * models and samples you need rather than relying on the defaults.
  *
  * Three kinds of evidence, strongest first:
  *  - checks: the known regressions in `samples.ts`, pass or fail;

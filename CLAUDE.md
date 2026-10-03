@@ -238,9 +238,12 @@ the change, so a font change costs one encode and a translator change costs no t
   (`POST_GENRE_HINTS`); changing it re-translates. `buildGlossary` makes one call per video for
   names and field terms only: a glossary that pinned phrases or dialogue made translations
   *worse*, so `isGlossaryEntry` drops anything longer than four words or with punctuation.
-- **Translation quality has a test harness.** `npm test` is offline; `npm run eval:translate`
-  runs the real translation path over `tests/translation/samples/` with any model and checks the
-  known meaning errors in `samples.ts`. A prompt change should be judged by it, before and after.
+- **Translation quality has a test harness.** `npm test` is offline and free.
+  `tests/translation/eval.ts` runs the real translation path over `tests/translation/samples/`
+  with any model and checks the known meaning errors in `samples.ts`, but every run is **paid**
+  (Workers AI neurons, plus NVIDIA/Mistral/Groq), so it is deliberately not an npm script: run it
+  by hand with `node --import tsx` and name the models and samples (see its header). One
+  five-model comparison over all eight samples cost ~2,400 calls and 270k neurons.
 - **Translated text is whitespace-normalised where it is produced, not at the burn.** `clean` only
   ever ran on STT output, so a translator that doubled a space had it burned in — a cue short
   enough to skip `resegment` never has its words rejoined. `translateSegments` normalises now, and
@@ -316,6 +319,18 @@ defaults, and a value not on the menu falls back rather than being used verbatim
 Docker is not installed on this machine, so the container cannot be built, deployed or dry-run
 here. Anything touching ffmpeg, burning or fonts is **unverified by definition** — say so rather
 than implying it was tested. `npm run typecheck` is the real check.
+
+## Paid API calls: ask first
+
+**Never make a paid API call without the owner's explicit approval for that specific run.** That
+covers Workers AI (including through the Cloudflare REST API), NVIDIA, Mistral, Groq, Composio, and
+anything else billed per call or per token, whether from a script, `curl`, the translation eval,
+or a one-off probe. Before asking, say which models or services, roughly how many calls, and the
+estimated cost; then wait for a yes. Approval for one run does not carry over to the next.
+
+This is not hypothetical: one unrequested model comparison (five Workers AI models over the eight
+eval samples, reasoning models included) made ~2,400 calls and burned ~270k neurons in a day, at
+the owner's expense. Free work needs no approval: editing code, `npm test`, `npm run typecheck`.
 
 ## Commits
 

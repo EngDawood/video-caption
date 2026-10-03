@@ -11,8 +11,7 @@
     "r2-lifecycle": "wrangler r2 bucket lifecycle add video-caption-media expire-jobs jobs/ --expire-days 7",
     "set-webhook": "node --env-file-if-exists=.dev.vars scripts/set-webhook.mjs",
     "usage": "node --env-file-if-exists=.dev.vars scripts/usage.mjs",
-    "test": "vitest run",
-    "eval:translate": "node --env-file-if-exists=.dev.vars --import tsx tests/translation/eval.ts"
+    "test": "vitest run"
   },
   "dependencies": {
     "@cloudflare/containers": "^0.3.7",
