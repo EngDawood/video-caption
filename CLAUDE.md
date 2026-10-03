@@ -320,6 +320,18 @@ Docker is not installed on this machine, so the container cannot be built, deplo
 here. Anything touching ffmpeg, burning or fonts is **unverified by definition** — say so rather
 than implying it was tested. `npm run typecheck` is the real check.
 
+## Paid API calls: ask first
+
+**Never make a paid API call without the owner's explicit approval for that specific run.** That
+covers Workers AI (including through the Cloudflare REST API), NVIDIA, Mistral, Groq, Composio, and
+anything else billed per call or per token, whether from a script, `curl`, the translation eval,
+or a one-off probe. Before asking, say which models or services, roughly how many calls, and the
+estimated cost; then wait for a yes. Approval for one run does not carry over to the next.
+
+This is not hypothetical: one unrequested model comparison (five Workers AI models over the eight
+eval samples, reasoning models included) made ~2,400 calls and burned ~270k neurons in a day, at
+the owner's expense. Free work needs no approval: editing code, `npm test`, `npm run typecheck`.
+
 ## Commits
 
 Never put a `claude.ai/code/session_...` link in a commit message, PR title or body, code
