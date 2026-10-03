@@ -1,6 +1,7 @@
 import type { GenreId, TRANSLATORS, TranslatorId } from '../captions/settings';
 import type { Env } from '../types';
 import { ARABIC_RULES } from './arabic';
+import { aiOptions } from './gateway';
 
 /**
  * The translator transports — one per `kind` in `TRANSLATORS` — and the
@@ -195,7 +196,7 @@ export async function chatComplete(
   temperature: number,
 ): Promise<string> {
   if (model.kind !== 'nvidia-chat') {
-    const res: any = await env.AI.run(model.model as any, { messages, temperature, max_tokens: MAX_ANSWER_TOKENS } as any);
+    const res: any = await env.AI.run(model.model as any, { messages, temperature, max_tokens: MAX_ANSWER_TOKENS } as any, aiOptions(env));
     return withoutThinking(String(res?.response ?? res?.choices?.[0]?.message?.content ?? ''));
   }
 
@@ -273,6 +274,6 @@ export async function mtTranslate(
     text,
     source_lang: source,
     target_lang: target,
-  } as any);
+  } as any, aiOptions(env));
   return String(res?.translated_text ?? '').trim();
 }

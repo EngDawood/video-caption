@@ -14,6 +14,7 @@ interface __BaseEnv_Env {
 	SOURCE_LANG: "en";
 	TARGET_LANG: "ar";
 	STT_PROVIDER: "groq";
+	AI_GATEWAY_ID: "default";
 	WHISPER_MODEL: "@cf/openai/whisper-large-v3-turbo";
 	TRANSLATION_MODEL: "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 	POST_TEXT_MODEL: "moonshotai/kimi-k3";
@@ -53,7 +54,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "SUBTITLE_FONT" | "SUBTITLE_FONT_BOLD" | "CAPTION_PRESET" | "CAPTION_SIZE" | "CAPTION_POSITION" | "SOURCE_LANG" | "TARGET_LANG" | "STT_PROVIDER" | "WHISPER_MODEL" | "TRANSLATION_MODEL" | "POST_TEXT_MODEL" | "POST_TEXT_LANGUAGES" | "CHUNK_SECONDS" | "MAX_VIDEO_SECONDS" | "MAX_CAPTION_CHARS" | "DOWNLOAD_API_BASE" | "MAX_SOURCE_MB" | "CLOUDFLARE_ACCOUNT_ID" | "API_SETTINGS_CHAT_ID" | "API_BASE_URL" | "TELEGRAM_BOT_TOKEN" | "ADMIN_CHAT_ID" | "TELEGRAM_WEBHOOK_SECRET" | "CLOUDFLARE_API_TOKEN" | "DOWNLOAD_API_KEY" | "GROQ_API_KEY" | "MISTRAL_API_KEY" | "API_KEY" | "NVIDIA_API_KEY">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "SUBTITLE_FONT" | "SUBTITLE_FONT_BOLD" | "CAPTION_PRESET" | "CAPTION_SIZE" | "CAPTION_POSITION" | "SOURCE_LANG" | "TARGET_LANG" | "STT_PROVIDER" | "AI_GATEWAY_ID" | "WHISPER_MODEL" | "TRANSLATION_MODEL" | "POST_TEXT_MODEL" | "POST_TEXT_LANGUAGES" | "CHUNK_SECONDS" | "MAX_VIDEO_SECONDS" | "MAX_CAPTION_CHARS" | "DOWNLOAD_API_BASE" | "MAX_SOURCE_MB" | "CLOUDFLARE_ACCOUNT_ID" | "API_SETTINGS_CHAT_ID" | "API_BASE_URL" | "TELEGRAM_BOT_TOKEN" | "ADMIN_CHAT_ID" | "TELEGRAM_WEBHOOK_SECRET" | "CLOUDFLARE_API_TOKEN" | "DOWNLOAD_API_KEY" | "GROQ_API_KEY" | "MISTRAL_API_KEY" | "API_KEY" | "NVIDIA_API_KEY">> {}
 }
 
 // Begin runtime types

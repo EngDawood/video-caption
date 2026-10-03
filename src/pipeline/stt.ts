@@ -1,6 +1,7 @@
 import type { SttProviderId } from '../captions/settings';
 import { sanitize } from '../captions/text';
 import type { Env, Segment } from '../types';
+import { aiOptions, gatewayHeaders, providerBase } from './gateway';
 
 /**
  * Speech to text: the provider chain, and turning whatever each provider
@@ -73,7 +74,7 @@ export async function transcribeChunk(
 async function transcribeWorkersAI(env: Env, audio: ArrayBuffer, sourceLang: string): Promise<any> {
   const input: Record<string, unknown> = { audio: toBase64(audio) };
   if (sourceLang && sourceLang !== 'auto') input.language = sourceLang;
-  return env.AI.run(whisperModel(env) as any, input as any);
+  return env.AI.run(whisperModel(env) as any, input as any, aiOptions(env));
 }
 
 /**
@@ -82,16 +83,21 @@ async function transcribeWorkersAI(env: Env, audio: ArrayBuffer, sourceLang: str
  * `granularityField` is not cosmetic: Groq takes the PHP-style array form and
  * Mistral (Voxtral) takes the plain name — and Voxtral returns an EMPTY
  * segments array if segment granularity is not requested at all.
+ *
+ * `base` is the provider's own API root and `path` what follows it; AI Gateway
+ * stands in for `base` when it is configured (`providerBase`).
  */
 const PROVIDERS = {
   groq: {
-    endpoint: 'https://api.groq.com/openai/v1/audio/transcriptions',
+    base: 'https://api.groq.com/openai/v1',
+    path: '/audio/transcriptions',
     model: 'whisper-large-v3-turbo',
     keyVar: 'GROQ_API_KEY',
     granularityField: 'timestamp_granularities[]',
   },
   mistral: {
-    endpoint: 'https://api.mistral.ai/v1/audio/transcriptions',
+    base: 'https://api.mistral.ai',
+    path: '/v1/audio/transcriptions',
     model: 'voxtral-mini-latest',
     keyVar: 'MISTRAL_API_KEY',
     granularityField: 'timestamp_granularities',
@@ -115,9 +121,10 @@ async function transcribeExternal(
   form.append(provider.granularityField, 'segment');
   if (sourceLang && sourceLang !== 'auto') form.append('language', sourceLang);
 
-  const res = await fetch(provider.endpoint, {
+  const base = await providerBase(env, id, provider.base);
+  const res = await fetch(`${base}${provider.path}`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${apiKey}` },
+    headers: { authorization: `Bearer ${apiKey}`, ...gatewayHeaders(env) },
     body: form,
   });
   if (!res.ok) throw new Error(`${id} transcription failed (${res.status}): ${await res.text()}`);
